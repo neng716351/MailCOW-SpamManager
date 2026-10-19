@@ -1,0 +1,83 @@
+{% extends 'base.twig' %}
+{% block content %}
+<style>
+#spam-manager .sm-table th,#spam-manager .sm-table td{padding:.4rem .65rem;vertical-align:middle}
+#spam-manager .sm-table td{overflow-wrap:anywhere}
+#spam-manager .form-label{margin-bottom:.2rem;font-weight:500}
+#spam-manager .form-control{padding:.35rem .55rem}
+#spam-manager .sm-help{font-size:.875rem}
+#spam-manager #impersonation-result:empty{display:none}
+#spam-manager #impersonation-result{padding:.4rem .65rem;margin:.5rem 0 0}
+#spam-manager .sm-emails{white-space:normal;line-height:1.5}
+#spam-manager .sm-actions{white-space:nowrap;width:1%}
+#spam-manager .sm-scroll{max-height:480px;overflow:auto}
+#spam-manager .sm-scroll thead th{position:sticky;top:0;background:var(--bs-body-bg,#fff);z-index:1}
+#spam-manager .sm-subject{max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#spam-manager [hidden]{display:none!important}
+</style>
+<div id="spam-manager" class="container" style="max-width:960px">
+  <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+    <div class="d-flex align-items-baseline gap-2"><h1 class="h4 mb-0">Spam Manager</h1><span class="text-muted small">郵件過濾統一管理</span></div>
+    <a class="btn btn-sm btn-outline-secondary" href="/admin/system">返回管理介面</a>
+  </div>
+  {% include 'spammanager-controls.twig' %}
+  <section data-sm-section="impersonation" hidden>
+  <div class="card mb-2">
+    <div class="card-header d-flex justify-content-between align-items-center py-2 px-3">
+      <h2 class="h6 mb-0">規則列表</h2>
+      <button type="button" class="btn btn-sm btn-primary" data-sm-rule="">＋ 新增規則</button>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm sm-table mb-0">
+        <thead><tr><th scope="col">顯示名稱</th><th scope="col">允許的寄件信箱</th><th scope="col">狀態</th><th scope="col" class="sm-actions">操作</th></tr></thead>
+        <tbody id="sm-impersonation-rows">
+        {% set visible_rules = 0 %}
+        {% for rsetting in rsettings %}{% if rsetting.impersonation %}
+          {% set visible_rules = visible_rules + 1 %}
+          <tr data-sm-row="{{ rsetting.details.id }}">
+            <td>{{ rsetting.impersonation.name|e }}</td>
+            <td class="sm-emails">{% for email in rsetting.impersonation.emails %}<span class="d-inline-block me-2">{{ email|e }}</span>{% endfor %}</td>
+            <td><span class="badge {% if rsetting.details.active %}bg-success{% else %}bg-secondary{% endif %}">{% if rsetting.details.active %}啟用{% else %}停用{% endif %}</span></td>
+            <td class="sm-actions"><button type="button" class="btn btn-sm btn-outline-secondary" data-sm-rule="{{ rsetting.details.id }}" aria-label="編輯 {{ rsetting.impersonation.name|e('html_attr') }}">編輯</button></td>
+          </tr>
+        {% endif %}{% endfor %}
+        {% if visible_rules == 0 %}<tr><td colspan="4" class="text-muted">尚無防冒名規則，按「新增規則」開始設定。</td></tr>{% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <section class="card" aria-labelledby="impersonation-title">
+    <div class="card-body p-3">
+      <h2 id="impersonation-title" class="h6 mb-2">編輯規則</h2>
+      <form id="impersonation-form" autocomplete="off" data-cached-form="false">
+        <input type="hidden" id="spammanager-csrf" value="{{ csrf_token|e('html_attr') }}">
+        <select id="impersonation-rule" hidden aria-hidden="true" tabindex="-1">
+          <option value="">新增防冒名規則</option>
+          {% for rsetting in rsettings %}{% if rsetting.impersonation %}
+          <option value="{{ rsetting.details.id }}" data-name="{{ rsetting.impersonation.name|e('html_attr') }}" data-emails="{{ rsetting.impersonation.emails|join('\n')|e('html_attr') }}" data-hash="{{ rsetting.hash }}" data-active="{{ rsetting.details.active }}">{{ rsetting.details.desc|e }}</option>
+          {% endif %}{% endfor %}
+        </select>
+        <div class="row g-2 align-items-start">
+          <div class="col-md-4">
+            <label for="impersonation-name" class="form-label">顯示名稱</label>
+            <input id="impersonation-name" class="form-control" maxlength="80" required placeholder="例如：王小明">
+          </div>
+          <div class="col-md-8">
+            <label for="impersonation-emails" class="form-label">允許的寄件信箱</label>
+            <textarea id="impersonation-emails" class="form-control" rows="2" required placeholder="user@example.invalid" aria-describedby="impersonation-email-help"></textarea>
+            <div id="impersonation-email-help" class="text-muted sm-help mt-1">一行一個或逗號分隔，最多 20 個。</div>
+          </div>
+        </div>
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mt-2">
+          <div class="form-check mb-0"><input id="impersonation-active" class="form-check-input" type="checkbox" checked><label class="form-check-label" for="impersonation-active">啟用規則</label></div>
+          <div class="d-flex gap-2"><button id="impersonation-delete" type="button" class="btn btn-sm btn-outline-danger">刪除規則</button><button id="impersonation-save" type="submit" class="btn btn-sm btn-primary">儲存規則</button></div>
+        </div>
+        <div id="impersonation-preview" class="sm-help text-muted border-top pt-2 mt-2" aria-live="polite"></div>
+        <div id="impersonation-result" role="status" aria-live="polite"></div>
+      </form>
+    </div>
+  </section>
+  <p class="sm-help text-muted mt-2 mb-0">比對 From 顯示名稱與信箱；不符合允許清單時標記為垃圾郵件。此規則不驗證寄件者身分。</p>
+  </section>
+</div>
+{% endblock %}

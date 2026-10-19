@@ -1,0 +1,32 @@
+diff --git a/data/web/inc/functions.rspamd.inc.php b/data/web/inc/functions.rspamd.inc.php
+index c2444d99..02cf11f6 100644
+--- a/data/web/inc/functions.rspamd.inc.php
++++ b/data/web/inc/functions.rspamd.inc.php
+@@ -1,8 +1,27 @@
+ <?php
++require_once __DIR__ . "/impersonation.inc.php";
+ function rsettings($_action, $_data = null) {
+ 	global $pdo;
+ 	global $lang;
+   $_data_log = $_data;
++  if (in_array($_action, ['add', 'edit'], true) && isset($_data['impersonation_name'])) {
++    if (($_SESSION['mailcow_cc_role'] ?? '') !== 'admin') return false;
++    try {
++      $model = impersonation_validate($_data['impersonation_name'], $_data['impersonation_emails'] ?? '');
++      if ($_action === 'edit') {
++        $ids = (array)($_data['id'] ?? []);
++        if (count($ids) !== 1) throw new InvalidArgumentException('一次只能編輯一筆防冒名規則。');
++        $old = rsettings('details', $ids[0]);
++        if (!$old || !impersonation_model($old['content'])) throw new InvalidArgumentException('此規則含有進階設定，請使用原始編輯器。');
++      }
++      $_data['content'] = impersonation_content($model);
++      $_data['desc'] = $model['name'] . '寄件信箱驗證';
++      $_data['active'] = !empty($_data['active']) ? 1 : 0;
++    } catch (InvalidArgumentException $e) {
++      $_SESSION['return'][] = ['type' => 'danger', 'msg' => $e->getMessage()];
++      return false;
++    }
++  }
+   switch ($_action) {
+     case 'add':
+       if ($_SESSION['mailcow_cc_role'] != "admin") {

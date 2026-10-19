@@ -1,0 +1,68 @@
+<div class="d-flex flex-wrap gap-1 mb-2" role="navigation" aria-label="Spam Manager 功能">
+  {% for key,label in {'overview':'總覽','scores':'評分與試算','maps':'全域名單','policies':'個別規則','impersonation':'防冒名','history':'郵件紀錄'} %}
+  <button type="button" class="btn btn-sm {% if key == 'overview' %}btn-primary{% else %}btn-outline-secondary{% endif %}" data-sm-panel="{{ key }}" aria-pressed="{% if key == 'overview' %}true{% else %}false{% endif %}">{{ label }}</button>
+  {% endfor %}
+  <button type="button" id="sm-refresh" class="btn btn-sm btn-outline-secondary ms-auto">重新讀取設定</button>
+</div>
+<div id="sm-notice" role="status" aria-live="polite" class="small mb-2">正在讀取目前設定…</div>
+<section data-sm-section="overview">
+  <div class="card mb-2"><div class="card-body p-3">
+    <div class="d-flex flex-wrap gap-3 small" id="sm-summary"></div>
+    <p class="small text-muted my-2">SMTP 來源檢查 → Rspamd 綜合評分／黑白名單／防冒名 → 病毒與其他強制動作 → Sieve 分類。全域門檻可能被個別規則覆寫。</p>
+    <div class="table-responsive"><table class="table table-sm sm-table mb-0"><thead><tr><th>判斷層級</th><th>目前用途／關聯</th><th>調整位置</th></tr></thead><tbody>
+      <tr><td>一般綜合評分</td><td id="sm-threshold-summary">讀取中</td><td><button class="btn btn-sm btn-outline-secondary" type="button" data-sm-go="scores">門檻／權重</button></td></tr>
+      <tr><td>全域黑白名單</td><td>From／SMTP 寄件者加減分；收件者名單可直接接受或拒收。</td><td><button class="btn btn-sm btn-outline-secondary" type="button" data-sm-go="maps">管理名單</button></td></tr>
+      <tr><td>個別信箱／網域</td><td>寄件者名單與專屬門檻，優先序通常高於一般門檻。</td><td><button class="btn btn-sm btn-outline-secondary" type="button" data-sm-go="policies">個別規則</button></td></tr>
+      <tr><td>防冒名規則</td><td>比對顯示名稱及寄件信箱；命中後依此規則標記垃圾郵件。</td><td><button class="btn btn-sm btn-outline-secondary" type="button" data-sm-go="impersonation">防冒名</button></td></tr>
+    </tbody></table></div>
+    <div id="sm-relations" class="small text-muted mt-2"></div>
+    <div class="d-flex flex-wrap gap-2 mt-2"><a class="small" href="/rspamd/" target="_blank" rel="noopener">Rspamd 原生模組／統計</a><a class="small" href="/admin/system">Mailcow 系統設定／隔離區</a></div>
+  </div></div>
+  <div class="card"><div class="card-header py-2 px-3 small">最近的變更前備份</div><div class="card-body p-2 small" id="sm-audit">尚無操作紀錄</div></div>
+</section>
+<section data-sm-section="scores" hidden>
+  <form id="sm-actions-form" class="card mb-2" data-cached-form="false"><div class="card-body p-3">
+    <h2 class="h6 mb-2">全域處理門檻</h2>
+    <div class="row g-2 align-items-end">
+      <div class="col-4 col-md-3"><label for="sm-grey" class="form-label small">灰名單</label><input id="sm-grey" type="number" step="any" min="0" max="10000" required class="form-control form-control-sm"></div>
+      <div class="col-4 col-md-3"><label for="sm-tag" class="form-label small">垃圾標記</label><input id="sm-tag" type="number" step="any" min="0" max="10000" required class="form-control form-control-sm"></div>
+      <div class="col-4 col-md-3"><label for="sm-reject" class="form-label small">拒收</label><input id="sm-reject" type="number" step="any" min="0" max="10000" required class="form-control form-control-sm"></div>
+      <div class="col-md-3"><button type="submit" class="btn btn-sm btn-primary w-100" disabled>儲存門檻</button></div>
+    </div><div class="small text-muted mt-2">必須由小至大。灰名單記錄、強制動作及個別規則會影響最後處理結果。</div>
+  </div></form>
+  <div class="card"><div class="card-body p-3">
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-2"><h2 class="h6 mb-0">雞尾酒評分項目</h2><input id="sm-symbol-search" type="search" class="form-control form-control-sm flex-grow-1" style="width:220px" aria-label="搜尋評分項目" placeholder="搜尋 SPF、DKIM、BAYES、網址、病毒…"><button id="sm-save-symbols" type="button" class="btn btn-sm btn-primary" disabled>儲存權重</button></div>
+    <div class="small border rounded px-2 py-1 mb-2"><span id="sm-simulation">勾選項目試算總分。</span> <button id="sm-sim-clear" type="button" class="btn btn-sm btn-link py-0">清除試算</button></div>
+    <div class="table-responsive sm-scroll"><table class="table table-sm sm-table mb-0"><thead><tr><th scope="col">試算</th><th scope="col">項目／群組</th><th scope="col">說明</th><th scope="col" style="min-width:100px">分數</th></tr></thead><tbody id="sm-symbol-rows"><tr><td colspan="4" class="small text-muted">讀取中…</td></tr></tbody></table></div>
+    <div class="d-flex justify-content-between align-items-center gap-2 mt-2 small"><button id="sm-symbol-prev" type="button" class="btn btn-sm btn-outline-secondary">上一頁</button><span id="sm-symbol-page"></span><button id="sm-symbol-next" type="button" class="btn btn-sm btn-outline-secondary">下一頁</button></div>
+    <div class="small text-muted mt-2">試算只加總勾選項目，並使用畫面中的權重與全域門檻。正負分可互相抵銷；實際郵件仍以所有命中項目和例外為準。</div>
+  </div></div>
+</section>
+<section data-sm-section="maps" hidden>
+  <form id="sm-map-form" class="card" data-cached-form="false"><div class="card-body p-3">
+    <div class="row g-2 align-items-end mb-2"><div class="col-md-8"><label for="sm-map-select" class="form-label small">全域名單／內容規則</label><select id="sm-map-select" class="form-select form-select-sm" aria-describedby="sm-map-effect"></select></div><div class="col-md-4"><button type="submit" class="btn btn-sm btn-primary w-100" disabled>驗證並儲存名單</button></div></div>
+    <p id="sm-map-effect" class="small text-muted mb-2"></p>
+    <label for="sm-map-content" class="visually-hidden">名單正規表示式</label><textarea id="sm-map-content" rows="10" spellcheck="false" class="form-control form-control-sm font-monospace"></textarea>
+    <div class="d-flex flex-wrap align-items-center gap-2 mt-2"><input id="sm-map-address" class="form-control form-control-sm" style="width:230px" aria-label="測試地址" placeholder="例如 sender@example.com"><button id="sm-map-insert" type="button" class="btn btn-sm btn-outline-secondary">轉成精確地址規則並加入</button><span id="sm-map-count" class="small text-muted"></span></div>
+    <div id="sm-map-conflicts" class="small text-danger mt-2"></div>
+    <p class="small text-muted mt-2 mb-0">一行一個正規表示式，例如 <code>/^sender@example\.com$/i</code>；# 開頭為註解。上方的地址輸入可自動處理特殊字元。</p>
+  </div></form>
+</section>
+<section data-sm-section="policies" hidden>
+  <div class="card mb-2"><div class="card-body p-3">
+    <h2 class="h6 mb-2">信箱／網域專屬設定</h2>
+    <label for="sm-scope" class="form-label small">套用對象</label><input id="sm-scope" list="sm-scope-targets" class="form-control form-control-sm mb-2" placeholder="選擇既有信箱或網域"><datalist id="sm-scope-targets"></datalist>
+    <form id="sm-policy-form" class="row g-2 align-items-end" data-cached-form="false"><div class="col-md-3"><label class="form-label small" for="sm-policy-kind">類型</label><select id="sm-policy-kind" class="form-select form-select-sm"><option value="wl">寄件者白名單</option><option value="bl">寄件者黑名單</option></select></div><div class="col-md-6"><label class="form-label small" for="sm-policy-value">寄件者條件</label><input id="sm-policy-value" class="form-control form-control-sm" required maxlength="100" placeholder="例如 *@example.com"></div><div class="col-md-3"><button type="submit" class="btn btn-sm btn-primary w-100">加入名單</button></div></form>
+    <form id="sm-scope-form" class="row g-2 align-items-end mt-1" data-cached-form="false"><div class="col-md-3"><label class="form-label small" for="sm-scope-tag">垃圾標記門檻</label><input id="sm-scope-tag" type="number" min="1" max="9999" step="any" class="form-control form-control-sm" required></div><div class="col-md-3"><label class="form-label small" for="sm-scope-reject">拒收門檻</label><input id="sm-scope-reject" type="number" min="1" max="10000" step="any" class="form-control form-control-sm" required></div><div class="col-md-3"><button type="submit" class="btn btn-sm btn-primary w-100">儲存專屬門檻</button></div><div class="col-md-3"><button id="sm-scope-reset" type="button" class="btn btn-sm btn-outline-secondary w-100">恢復繼承全域</button></div></form>
+    <p id="sm-scope-note" class="small text-muted mt-2 mb-0"></p>
+  </div></div>
+  <div class="card table-responsive"><table class="table table-sm sm-table mb-0"><thead><tr><th>套用對象</th><th>規則</th><th>值</th><th>操作</th></tr></thead><tbody id="sm-policy-rows"><tr><td colspan="4" class="small text-muted">讀取中…</td></tr></tbody></table></div>
+</section>
+<section data-sm-section="history" hidden>
+  <div class="card"><div class="card-body p-3">
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-2"><h2 class="h6 mb-0">最近 100 封掃描紀錄</h2><input id="sm-history-search" type="search" class="form-control form-control-sm flex-grow-1" style="width:200px" placeholder="搜尋寄件者、收件者、主旨" aria-label="搜尋郵件紀錄"><button id="sm-history-refresh" type="button" class="btn btn-sm btn-outline-secondary">更新紀錄</button></div>
+    <div id="sm-history-status" class="small text-muted mb-2"></div>
+    <div class="table-responsive sm-scroll"><table class="table table-sm sm-table mb-0"><thead><tr><th>時間</th><th>寄件者／主旨</th><th>分數</th><th>動作</th><th>明細</th></tr></thead><tbody id="sm-history-rows"><tr><td colspan="5" class="small text-muted">讀取中…</td></tr></tbody></table></div>
+    <div id="sm-history-detail" class="mt-2 small"></div>
+  </div></div>
+</section>
