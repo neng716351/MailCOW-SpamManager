@@ -35,6 +35,72 @@ Mailcow 管理介面的 SpamManager 擴充功能，提供繁體中文的垃圾�
 4. 確認檔案擁有者與權限沿用 Mailcow 原設定，然後重新載入 Twig 快取並重啟 `php-fpm-mailcow`，讓 OPcache 載入新程式。
 5. 以 Mailcow 管理員登入並開啟 `/admin/SpamManager`。先讀取設定、檢查記錄，再進行任何寫入。
 
+## 更新
+
+這是手動更新流程：GitHub 上的程式碼不會自動部署到 Mailcow；Mailcow 裡的門檻、名單、政策及規則也不會同步回 GitHub。
+
+以下假設擴充功能 repo 和 Mailcow 安裝目錄都已存在於同一台主機。先將路徑換成實際位置，並在 Mailcow 維護時段執行：
+
+```sh
+SPAMMANAGER=/path/to/MailCOW-SpamManager
+MAILCOW=/path/to/mailcow-dockerized
+BACKUP_DIR=/path/to/private-backup
+```
+
+1. **確認版本與本機變更。** 檢查兩個 repo 的 `git status --short`；若有未提交的本機修改，先自行備份並釐清，勿直接覆蓋。
+2. **備份 Mailcow 檔案。** 將下列已安裝檔案及整合入口備份到 Mailcow 目錄以外、Web 無法存取的位置。備份可能包含本機修改，不要提交至公開 repo。
+
+   ```sh
+   mkdir -p "$BACKUP_DIR"
+   tar -C "$MAILCOW" -czf "$BACKUP_DIR/spammanager-files-$(date +%Y%m%d-%H%M%S).tar.gz" \
+     data/web/admin/SpamManager.php \
+     data/web/admin/SpamManagerApi.php \
+     data/web/inc/impersonation.inc.php \
+     data/web/inc/spammanager.inc.php \
+     data/web/inc/functions.rspamd.inc.php \
+     data/web/js/site/impersonation.js \
+     data/web/js/site/spammanager.js \
+     data/web/js/site/spammanager.translations.js \
+     data/web/templates/spammanager-controls.twig \
+     data/web/templates/spammanager.twig
+   ```
+
+   此步只備份程式檔案。Mailcow/Rspamd 的執行中設定、資料庫及 Redis 備份請依 Mailcow 的備份流程另行處理。
+3. **取得程式碼更新並檢查。**
+
+   ```sh
+   git -C "$SPAMMANAGER" status --short
+   git -C "$SPAMMANAGER" pull --ff-only
+   php "$SPAMMANAGER/tests/impersonation.php"
+   php -l "$SPAMMANAGER/files/data/web/inc/impersonation.inc.php"
+   ```
+
+   更新前若 repo 有本機修改，先停止並處理，不要用 `reset` 或強制覆蓋。
+4. **更新擴充檔案。** 確認已安裝版本的本機修改已備份或合併，再複製擴充檔案：
+
+   ```sh
+   cp -R "$SPAMMANAGER/files/data/web/." "$MAILCOW/data/web/"
+   ```
+
+   複製後確認檔案擁有者及權限與原 Mailcow 安裝一致。
+5. **檢查整合補丁。** `functions.rspamd.inc.php.patch` 是針對尚未整合此功能的 Mailcow 原始檔案。更新時不要盲目重複套用：
+
+   ```sh
+   git -C "$MAILCOW" apply --reverse --check "$SPAMMANAGER/patches/functions.rspamd.inc.php.patch"
+   ```
+
+   若反向檢查成功，表示補丁已存在，不需重複套用。若失敗，先執行一般的 `git apply --check`；只有檢查成功且確認目前整合入口尚未加入時才套用。兩種檢查都失敗時，停止更新並依 Mailcow 版本手動檢視差異，勿使用 `--force`。
+6. **重新載入並驗證。** 依部署方式重新載入 Twig 快取，再從 Mailcow 安裝目錄重啟 PHP-FPM：
+
+   ```sh
+   cd "$MAILCOW"
+   docker compose restart php-fpm-mailcow
+   ```
+
+   以 Mailcow 管理員開啟 `/admin/SpamManager`，確認頁面可載入、設定可讀取，再於測試環境驗證寫入操作與郵件處理結果。若有錯誤，先停止修改設定，並使用先前備份回復程式檔案及整合入口。
+
+不要把 Mailcow 的真實門檻、名單、信箱／網域政策、規則內容、郵件或備份推送到此公開 repo。若要分享程式碼修改，請只挑選擴充功能程式檔，先檢查差異並移除環境資料，再提交至 GitHub。
+
 解除安裝前先備份設定。移除新增的 SpamManager 檔案，並還原 `functions.rspamd.inc.php` 中此擴充功能的整合區塊；已儲存的 Rspamd、政策、名單及防冒名規則需另行還原。
 
 ## 檢查
