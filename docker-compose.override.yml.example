@@ -1,0 +1,17 @@
+# Copy to your mailcow directory as docker-compose.override.yml (it is gitignored by
+# mailcow, so it survives update.sh).
+#
+# Gives php-fpm read-only visibility of config files that live in other containers, so the
+# Spam Manager overview tab can show a live "local customizations intact?" check.
+# Directories (not single files) are mounted on purpose: a single-file bind mount goes
+# stale when an update replaces the file with a new inode, a directory mount does not.
+#
+# The ./data/updater mount is only needed if you also install the optional update agent.
+# Apply with:  docker compose up -d --no-deps php-fpm-mailcow
+services:
+  php-fpm-mailcow:
+    volumes:
+      - ./data/conf/rspamd/local.d:/localcheck/rspamd-local.d:ro,z
+      - ./data/conf/postfix:/localcheck/postfix:ro,z
+      - ./data/conf/clamav:/localcheck/clamav:ro,z
+      - ./data/updater:/updater:z

@@ -11,6 +11,10 @@ Mailcow 管理介面的 SpamManager 擴充功能，提供繁體中文的垃圾�
 - 建立以寄件者顯示名稱為條件的防冒名規則。
 - 查看管理操作前的設定快照與近期紀錄。
 - 使用繁體中文介面及評分規則說明。
+- 檢視被拒收且已留存的郵件，並放行投遞到本機收件信箱。
+- 留存往外寄但被拒收的郵件（誤判常見於此），由管理員決定放行給外部收件人或刪除。
+- 兩種攔截都可設定通知收件人；命中病毒的外寄郵件放行時需額外確認。
+- 在總覽頁即時檢查本機自訂設定是否被 Mailcow 更新覆蓋。
 
 ## 相容性與注意事項
 
@@ -32,8 +36,39 @@ Mailcow 管理介面的 SpamManager 擴充功能，提供繁體中文的垃圾�
 
    若補丁不適用目前的 Mailcow 版本，請勿強制套用；手動檢視 `require_once` 及 `rsettings()` 的前置驗證區塊，並依目前版本調整。
 
-4. 確認檔案擁有者與權限沿用 Mailcow 原設定，然後重新載入 Twig 快取並重啟 `php-fpm-mailcow`，讓 OPcache 載入新程式。
-5. 以 Mailcow 管理員登入並開啟 `/admin/SpamManager`。先讀取設定、檢查記錄，再進行任何寫入。
+4. 若要使用郵件留存／放行功能，另外安裝：
+
+   - 將 `files/data/conf/rspamd/meta_exporter/` 的 `pipe_outbound.php` 與 `pipe_inbound_notify.php`
+     複製到 Mailcow 的 `data/conf/rspamd/meta_exporter/`。
+   - 套用 `patches/metadata_exporter.conf.patch`（新增 `OUTBOUND_HOLD` 與 `INBOUND_NOTIFY` 規則，
+     並放寬原有的隔離 selector，使命中黑名單的拒收郵件也會留存一份副本）。
+   - 套用 `patches/init_db.inc.php.patch`（新增 `outbound_hold` 資料表定義），或自行建立該資料表。
+   - 套用 `patches/base.twig.patch`（在管理選單加入 Spam Manager 入口）。
+   - 執行 `rspamadm configtest` 確認設定無誤後重啟 `rspamd-mailcow`。
+
+5. 若要使用總覽頁的「本機自訂設定狀態」檢查：
+
+   - 參考 `docker-compose.override.yml.example` 設定 php-fpm 的唯讀掛載，
+     並以 `docker compose up -d --no-deps php-fpm-mailcow` 套用。
+   - 將 `files/data/web/inc/spammanager.customizations.example.json` 複製為
+     `spammanager.customizations.json` 並依你的部署調整。該檔描述你的部署細節，請勿提交至公開 repo。
+
+6. 確認檔案擁有者與權限沿用 Mailcow 原設定，然後重新載入 Twig 快取並重啟 `php-fpm-mailcow`，讓 OPcache 載入新程式。
+7. 以 Mailcow 管理員登入並開啟 `/admin/SpamManager`。先讀取設定、檢查記錄，再進行任何寫入。
+
+## 郵件留存與放行
+
+被拒收的郵件要能「放行」，前提是系統留有副本：
+
+- **SMTP 連線階段拒收**（postscreen DNSBL、HELO 檢查等）在對方送出信件內容之前就被拒，
+  系統沒有、也不可能有副本，因此**無法列出或放行**。
+- **內容掃描後拒收**才會留存副本，分成兩個方向：
+  - 寄給本機信箱的郵件由 Mailcow 原生隔離機制留存，放行會重新投遞到該信箱。
+  - 由已驗證使用者往外寄的郵件由 `pipe_outbound.php` 留存於 `outbound_hold`，
+    放行會透過 Postfix 的重新注入埠寄給外部收件人。
+
+放行會略過當初攔截該郵件的檢查（包含病毒掃描），屬於管理員的明確決定，操作前請先確認郵件安全。
+所有放行與刪除都會寫入變更紀錄。外寄留存預設保留 30 天。
 
 ## 更新
 

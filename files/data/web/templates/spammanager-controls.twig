@@ -1,5 +1,5 @@
 <div class="d-flex flex-wrap gap-1 mb-2" role="navigation" aria-label="Spam Manager 功能">
-  {% for key,label in {'overview':'總覽','scores':'評分與試算','maps':'全域名單','policies':'個別規則','impersonation':'防冒名','history':'郵件紀錄'} %}
+  {% for key,label in {'overview':'總覽','scores':'評分與試算','maps':'全域名單','policies':'個別規則','impersonation':'防冒名','history':'郵件紀錄','rejected':'被拒收郵件','outbound':'外寄攔截'} %}
   <button type="button" class="btn btn-sm {% if key == 'overview' %}btn-primary{% else %}btn-outline-secondary{% endif %}" data-sm-panel="{{ key }}" aria-pressed="{% if key == 'overview' %}true{% else %}false{% endif %}">{{ label }}</button>
   {% endfor %}
   <button type="button" id="sm-refresh" class="btn btn-sm btn-outline-secondary ms-auto">重新讀取設定</button>
@@ -18,6 +18,33 @@
     <div id="sm-relations" class="small text-muted mt-2"></div>
     <div class="d-flex flex-wrap gap-2 mt-2"><a class="small" href="/rspamd/" target="_blank" rel="noopener">Rspamd 原生模組／統計</a><a class="small" href="/admin/system">Mailcow 系統設定／隔離區</a></div>
   </div></div>
+  <div class="card mb-2">
+    <div class="card-header py-2 px-3 small d-flex align-items-center justify-content-between">
+      <span>本機自訂設定狀態</span>
+      <button id="sm-custom-refresh" type="button" class="btn btn-sm btn-outline-secondary py-0">重新檢查</button>
+    </div>
+    <div class="card-body p-2">
+      <div id="sm-custom-status" class="small text-muted mb-2">讀取中…</div>
+      <div class="table-responsive"><table class="table table-sm sm-table mb-0"><tbody id="sm-custom-rows"></tbody></table></div>
+      <p class="small text-muted mt-2 mb-0">Mailcow 更新會以上游優先合併，可能覆蓋我們修改過的設定檔。更新後會自動重新套用；若仍顯示「已遺失」，可在主機執行 <code>helper-scripts/reapply-local-customizations.py --apply</code>。</p>
+    </div>
+  </div>
+  <div class="card mb-2">
+    <div class="card-header py-2 px-3 small">更新 Mailcow</div>
+    <div class="card-body p-3">
+      <div id="sm-update-status" class="small text-muted mb-2">讀取中…</div>
+      <form id="sm-update-form" class="row g-2 align-items-end" data-cached-form="false">
+        <div class="col-md-8">
+          <label for="sm-update-pass" class="form-label small mb-1">更新密碼</label>
+          <input id="sm-update-pass" type="password" class="form-control form-control-sm" autocomplete="new-password" placeholder="在主機設定的更新密碼">
+          <div class="small text-muted mt-1">與管理員登入密碼不同。由主機端驗證，網頁端不會儲存或比對。</div>
+        </div>
+        <div class="col-md-4"><button type="submit" class="btn btn-sm btn-warning w-100">開始更新</button></div>
+      </form>
+      <pre id="sm-update-log" class="small bg-body-tertiary border rounded p-2 mt-2 mb-0" style="max-height:220px;overflow:auto;white-space:pre-wrap" hidden></pre>
+      <p class="small text-muted mt-2 mb-0">更新會執行官方 <code>update.sh</code>，並自動重新套用本機自訂設定。<strong>過程中網頁與郵件服務會短暫中斷</strong>，期間此頁可能無法連線，完成後會自動顯示結果。請避開尖峰時段。</p>
+    </div>
+  </div>
   <div class="card"><div class="card-header py-2 px-3 small">最近的變更前備份</div><div class="card-body p-2 small" id="sm-audit">尚無操作紀錄</div></div>
 </section>
 <section data-sm-section="scores" hidden>
@@ -64,5 +91,33 @@
     <div id="sm-history-status" class="small text-muted mb-2"></div>
     <div class="table-responsive sm-scroll"><table class="table table-sm sm-table mb-0"><thead><tr><th>時間</th><th>寄件者／主旨</th><th>分數</th><th>動作</th><th>明細</th></tr></thead><tbody id="sm-history-rows"><tr><td colspan="5" class="small text-muted">讀取中…</td></tr></tbody></table></div>
     <div id="sm-history-detail" class="mt-2 small"></div>
+  </div></div>
+</section>
+<section data-sm-section="rejected" hidden>
+  <div class="card mb-2"><div class="card-body p-3">
+    <form id="sm-rejected-notify-form" class="row g-2 align-items-end" data-cached-form="false">
+      <div class="col-md-9"><label for="sm-rejected-notify" class="form-label small mb-1">拒收通知收件人</label><input id="sm-rejected-notify" class="form-control form-control-sm" placeholder="留空則不寄送通知" aria-describedby="sm-rejected-notify-help"><div id="sm-rejected-notify-help" class="small text-muted mt-1">有寄給本機信箱的郵件被拒收時寄通知到這些信箱，可用逗號分隔，最多 5 個；留空即關閉通知。</div></div>
+      <div class="col-md-3"><button type="submit" class="btn btn-sm btn-primary w-100">儲存通知設定</button></div>
+    </form>
+  </div></div>
+  <div class="card"><div class="card-body p-3">
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-2"><h2 class="h6 mb-0">被拒收且已留存的郵件</h2><input id="sm-rejected-search" type="search" class="form-control form-control-sm flex-grow-1" style="width:200px" placeholder="搜尋寄件者、收件者、主旨" aria-label="搜尋被拒收郵件"><button id="sm-rejected-refresh" type="button" class="btn btn-sm btn-outline-secondary">更新清單</button></div>
+    <div id="sm-rejected-status" class="small text-muted mb-2"></div>
+    <div class="table-responsive sm-scroll"><table class="table table-sm sm-table mb-0"><thead><tr><th>時間</th><th>寄件者 → 收件者／主旨</th><th>分數</th><th class="sm-actions">操作</th></tr></thead><tbody id="sm-rejected-rows"><tr><td colspan="4" class="small text-muted">讀取中…</td></tr></tbody></table></div>
+    <p class="small text-muted mt-2 mb-0">只列出「收件人是本機信箱、且被留存」的拒收郵件。放行會把原信重新投遞到該收件人信箱。<strong>SMTP 連線階段拒收（如 DNSBL）與往外寄被拒的郵件不會在此</strong>，因為系統沒有留存副本。放行等於略過當初的攔截，請先確認郵件安全無虞。</p>
+  </div></div>
+</section>
+<section data-sm-section="outbound" hidden>
+  <div class="card mb-2"><div class="card-body p-3">
+    <form id="sm-outbound-notify-form" class="row g-2 align-items-end" data-cached-form="false">
+      <div class="col-md-9"><label for="sm-outbound-notify" class="form-label small mb-1">攔截通知收件人</label><input id="sm-outbound-notify" class="form-control form-control-sm" placeholder="user@example.invalid" aria-describedby="sm-outbound-notify-help"><div id="sm-outbound-notify-help" class="small text-muted mt-1">有外寄郵件被攔截時寄通知到這些信箱，可用逗號分隔，最多 5 個。</div></div>
+      <div class="col-md-3"><button type="submit" class="btn btn-sm btn-primary w-100">儲存通知設定</button></div>
+    </form>
+  </div></div>
+  <div class="card"><div class="card-body p-3">
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-2"><h2 class="h6 mb-0">往外寄被攔截的郵件</h2><input id="sm-outbound-search" type="search" class="form-control form-control-sm flex-grow-1" style="width:200px" placeholder="搜尋寄件者、收件者、主旨" aria-label="搜尋外寄攔截"><button id="sm-outbound-refresh" type="button" class="btn btn-sm btn-outline-secondary">更新清單</button></div>
+    <div id="sm-outbound-status" class="small text-muted mb-2"></div>
+    <div class="table-responsive sm-scroll"><table class="table table-sm sm-table mb-0"><thead><tr><th>時間</th><th>寄件者 → 外部收件者／主旨</th><th>分數</th><th class="sm-actions">操作</th></tr></thead><tbody id="sm-outbound-rows"><tr><td colspan="4" class="small text-muted">讀取中…</td></tr></tbody></table></div>
+    <p class="small text-muted mt-2 mb-0">你們的人往外寄、但被拒收的郵件（例如誤判）會留存於此，保留 30 天。<strong>「放行」會把原信寄給外部收件人，略過當初的攔截</strong>，請務必先確認郵件安全；病毒命中者放行需額外確認。「刪除」則不寄出。<strong>SMTP 連線階段拒收不會在此</strong>。</p>
   </div></div>
 </section>

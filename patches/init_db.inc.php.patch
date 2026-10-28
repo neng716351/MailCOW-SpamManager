@@ -1,0 +1,42 @@
+diff --git a/data/web/inc/init_db.inc.php b/data/web/inc/init_db.inc.php
+index f6b0cd79..9fa6bb75 100644
+--- a/data/web/inc/init_db.inc.php
++++ b/data/web/inc/init_db.inc.php
+@@ -360,6 +360,37 @@ function init_db_schema()
+         ),
+         "attr" => "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ROW_FORMAT=DYNAMIC"
+       ),
++      // Local addition: holds a copy of OUTBOUND (authenticated-sender) mail that was
++      // rejected, so an admin can review and release it to the external recipient from
++      // the Spam Manager page. Separate from quarantine (which is inbound/local-rcpt).
++      "outbound_hold" => array(
++        "cols" => array(
++          "id" => "INT NOT NULL AUTO_INCREMENT",
++          "qid" => "VARCHAR(30) NOT NULL DEFAULT 'unknown'",
++          "subject" => "VARCHAR(500)",
++          "score" => "FLOAT(8,2)",
++          "ip" => "VARCHAR(50)",
++          "symbols" => "JSON",
++          "virus" => "TINYINT(1) NOT NULL DEFAULT '0'",
++          "sender" => "VARCHAR(255) NOT NULL DEFAULT 'unknown'",
++          "rcpt" => "VARCHAR(255)",
++          "msg" => "LONGTEXT",
++          "user" => "VARCHAR(255) NOT NULL DEFAULT 'unknown'",
++          "released" => "TINYINT(1) NOT NULL DEFAULT '0'",
++          "decided_by" => "VARCHAR(255)",
++          "notified" => "TINYINT(1) NOT NULL DEFAULT '0'",
++          "created" => "DATETIME(0) NOT NULL DEFAULT NOW(0)",
++        ),
++        "keys" => array(
++          "primary" => array(
++            "" => array("id")
++          ),
++          "key" => array(
++            "created" => array("created")
++          )
++        ),
++        "attr" => "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ROW_FORMAT=DYNAMIC"
++      ),
+       "mailbox" => array(
+         "cols" => array(
+           "username" => "VARCHAR(255) NOT NULL",

@@ -25,7 +25,7 @@
     message('正在儲存並核對設定…', false);
     return SM.request(op, data).done(function (r) { message(r.message || '已儲存。', false); if (done) done(r.data); }).fail(failure).always(function () { if (button) button.disabled = false; });
   }
-  var page = 0, selected = {}, drafts = {}, mapFile = '', historyRows = [], historyLoaded = false;
+  var page = 0, selected = {}, drafts = {}, mapFile = '', historyRows = [], historyLoaded = false, rejectedRows = [], rejectedLoaded = false, outboundRows = [], outboundLoaded = false;
   var actionLabels = {'no action':'正常投遞', 'add header':'垃圾標記', 'greylist':'灰名單', 'soft reject':'暫時拒收', 'reject':'拒收', 'rewrite subject':'改寫主旨'};
   var symbolNames = {'R_SPF_FAIL':'SPF 驗證失敗', 'R_DKIM_REJECT':'DKIM 驗證失敗', 'BAYES_SPAM':'貝氏分類：垃圾郵件', 'BAYES_HAM':'貝氏分類：正常郵件', 'CLAM_VIRUS':'病毒掃描命中', 'DMARC_POLICY_REJECT':'DMARC 拒收政策', 'FUZZY_DENIED':'模糊指紋命中', 'R_DKIM_ALLOW':'DKIM 驗證成功', 'R_SPF_ALLOW':'SPF 驗證成功'};
   var descriptionTranslations = window.SpamManagerDescriptions || {};
@@ -52,6 +52,8 @@
     document.querySelectorAll('[data-sm-panel]').forEach(function (n) { var active = n.getAttribute('data-sm-panel') === key; n.classList.toggle('btn-primary', active); n.classList.toggle('btn-outline-secondary', !active); n.setAttribute('aria-pressed', active ? 'true' : 'false'); });
     window.history.replaceState(null, '', '#sm-' + key);
     if (key === 'history' && !historyLoaded) loadHistory();
+    if (key === 'rejected' && !rejectedLoaded) loadRejected();
+    if (key === 'outbound' && !outboundLoaded) loadOutbound();
   }
   function summary() {
     var s = SM.state; if (!s) return;
@@ -63,7 +65,7 @@
     el('sm-relations').textContent = '防冒名關聯：' + (related.join('；') || '尚無啟用規則') + '。防冒名命中時會使用其專屬動作門檻，一般總分門檻不直接套用。';
     var audit = el('sm-audit'); audit.replaceChildren();
     if (!s.audit.length) audit.textContent = '尚無操作紀錄。每次調整前會保留設定備份。';
-    var operationNames = {save_actions:'全域門檻',save_symbols:'評分權重',save_map:'全域名單',policy_add:'新增個別名單',policy_delete:'移除個別名單',scope_score:'個別門檻',impersonation_save:'防冒名儲存',impersonation_delete:'防冒名刪除'};
+    var operationNames = {save_actions:'全域門檻',save_symbols:'評分權重',save_map:'全域名單',policy_add:'新增個別名單',policy_delete:'移除個別名單',scope_score:'個別門檻',impersonation_save:'防冒名儲存',impersonation_delete:'防冒名刪除',release:'放行被拒郵件',outbound_release:'放行外寄郵件',outbound_delete:'刪除外寄攔截'};
     s.audit.forEach(function (v) { audit.appendChild(node('div', v.time + ' · ' + v.actor + ' · ' + (operationNames[v.operation] || v.operation))); });
   }
   function actions() {
@@ -168,6 +170,138 @@
     el('sm-history-status').textContent='正在讀取 Rspamd 掃描紀錄…';
     $.ajax({url:api,type:'GET',dataType:'json',timeout:20000,data:{op:'history'}}).done(function(r){historyLoaded=true;historyRows=r.data.rows;el('sm-history-status').textContent='共 '+historyRows.length+' 筆。此處是掃描歷史；SMTP 連線階段拒收及未記錄的郵件不會出現在此。';renderHistory();}).fail(function(xhr,status){el('sm-history-status').textContent='紀錄讀取失敗，可按更新重試。';failure(xhr,status);});
   }
+  function rejectedStatus(){
+    el('sm-rejected-status').textContent='共 '+rejectedRows.length+' 封被留存的拒收郵件。只含收件人為本機信箱且已留存者；SMTP 連線階段拒收與往外寄被拒不會出現在此。';
+  }
+  function renderRejected(){
+    var term=el('sm-rejected-search').value.toLowerCase(),tbody=el('sm-rejected-rows');tbody.replaceChildren();
+    var rows=rejectedRows.filter(function(r){return [r.sender,r.rcpt,r.subject].join(' ').toLowerCase().indexOf(term)>=0;});
+    if(!rows.length){var tr=node('tr'),td=node('td',rejectedRows.length?'沒有符合搜尋的郵件。':'目前沒有被留存的拒收郵件。');td.colSpan=4;td.className='small text-muted';tr.appendChild(td);tbody.appendChild(tr);return;}
+    rows.forEach(function(r){
+      var tr=node('tr');
+      tr.appendChild(node('td',r.created?new Date(r.created*1000).toLocaleString('zh-TW',{hour12:false}):'—','small'));
+      var td=node('td');td.appendChild(node('div',(r.sender||'（空寄件者）')+' → '+(r.rcpt||''),'small'));
+      var subject=node('div',r.subject||'（無主旨）','small text-muted sm-subject');subject.title=r.subject||'';td.appendChild(subject);
+      if(r.virus){var vb=node('span','病毒命中','badge bg-danger');td.appendChild(vb);}
+      tr.appendChild(td);
+      tr.appendChild(node('td',Number(r.score).toFixed(2)));
+      td=node('td','',' sm-actions');var b=node('button','放行','btn btn-sm btn-outline-primary');b.type='button';
+      b.addEventListener('click',function(){releaseRejected(r,b);});td.appendChild(b);tr.appendChild(td);
+      tbody.appendChild(tr);
+    });
+  }
+  function releaseRejected(r,button){
+    if(!window.confirm('確定放行這封被拒收的郵件？\n\n寄件者：'+(r.sender||'（空）')+'\n收件者：'+(r.rcpt||'')+'\n主旨：'+(r.subject||'（無）')+(r.virus?'\n\n⚠ 這封曾命中病毒掃描，放行將略過該攔截。':'')+'\n\n放行會把原信重新投遞到收件人信箱。'))return;
+    button.disabled=true;message('正在放行郵件…',false);
+    SM.request('release',{id:r.id}).done(function(resp){
+      message(resp.message||'已放行。',false);
+      rejectedRows=rejectedRows.filter(function(x){return x.id!==r.id;});renderRejected();rejectedStatus();
+    }).fail(failure).always(function(){button.disabled=false;});
+  }
+  function loadRejected(){
+    el('sm-rejected-status').textContent='正在讀取被留存的拒收郵件…';
+    $.ajax({url:api,type:'GET',dataType:'json',timeout:20000,data:{op:'rejected'}}).done(function(r){rejectedLoaded=true;rejectedRows=r.data.rows||[];if(r.data.notify!==undefined)el('sm-rejected-notify').value=r.data.notify;rejectedStatus();renderRejected();}).fail(function(xhr,status){el('sm-rejected-status').textContent='清單讀取失敗，可按更新重試。';failure(xhr,status);});
+  }
+  var updatePolling=false;
+  function renderUpdate(d){
+    var host=el('sm-update-status'),states={idle:['尚未執行過更新','text-muted'],running:['更新進行中…','text-warning'],done:['上次更新完成','text-success'],error:['上次更新有問題','text-danger'],rejected:['上次請求被拒絕','text-danger']};
+    if(!d.available){host.textContent=d.message||'尚未啟用網頁更新。';host.className='small text-muted mb-2';el('sm-update-form').querySelector('button').disabled=true;el('sm-update-pass').disabled=true;return;}
+    var s=states[d.state]||states.idle,when=d.updated?('（'+new Date(d.updated*1000).toLocaleString('zh-TW',{hour12:false})+'）'):'';
+    host.textContent=s[0]+when+(d.message?('：'+d.message):'');
+    host.className='small mb-2 '+s[1];
+    var busy=d.state==='running'||d.pending;
+    el('sm-update-form').querySelector('button').disabled=busy;
+    el('sm-update-pass').disabled=busy;
+    var log=el('sm-update-log');
+    if(d.log){log.hidden=false;log.textContent=d.log;log.scrollTop=log.scrollHeight;}else{log.hidden=true;}
+    if(busy&&!updatePolling)pollUpdate();
+  }
+  function loadUpdate(){
+    return $.ajax({url:api,type:'GET',dataType:'json',timeout:15000,data:{op:'update_status'}}).done(function(r){renderUpdate(r.data||{});});
+  }
+  function pollUpdate(){
+    // The update recreates php-fpm, so requests will fail for a while; keep polling.
+    updatePolling=true;
+    var tries=0;
+    (function tick(){
+      tries++;
+      $.ajax({url:api,type:'GET',dataType:'json',timeout:10000,data:{op:'update_status'}})
+        .done(function(r){
+          var d=r.data||{};renderUpdate(d);
+          if(d.state==='running'||d.pending){setTimeout(tick,5000);}
+          else{updatePolling=false;loadCustomizations();}
+        })
+        .fail(function(){
+          el('sm-update-status').textContent='更新進行中，網頁服務重啟中…（已嘗試 '+tries+' 次重新連線）';
+          el('sm-update-status').className='small text-warning mb-2';
+          if(tries<240)setTimeout(tick,5000);else updatePolling=false;
+        });
+    })();
+  }
+  function renderCustomizations(items){
+    var tbody=el('sm-custom-rows');tbody.replaceChildren();
+    var bad=items.filter(function(i){return i.status!=='ok';}).length;
+    var labels={ok:['正常','bg-success'],missing:['已遺失','bg-danger'],unknown:['無法檢查','bg-secondary']};
+    items.forEach(function(i){
+      var tr=node('tr'),td=node('td');
+      td.appendChild(node('div',i.name,'small'));
+      if(i.detail)td.appendChild(node('div',i.detail,'small text-muted'));
+      tr.appendChild(td);
+      var st=node('td','',' sm-actions'),lab=labels[i.status]||labels.unknown;
+      st.appendChild(node('span',lab[0],'badge '+lab[1]));tr.appendChild(st);
+      tbody.appendChild(tr);
+    });
+    el('sm-custom-status').textContent=bad?('有 '+bad+' 項自訂設定不在預期狀態，可能被更新覆蓋。'):'全部 '+items.length+' 項自訂設定都在。';
+    el('sm-custom-status').className='small mb-2 '+(bad?'text-danger':'text-muted');
+  }
+  function loadCustomizations(){
+    el('sm-custom-status').textContent='正在檢查本機自訂設定…';el('sm-custom-status').className='small text-muted mb-2';
+    $.ajax({url:api,type:'GET',dataType:'json',timeout:20000,data:{op:'customizations'}}).done(function(r){renderCustomizations(r.data.items||[]);}).fail(function(xhr,status){el('sm-custom-status').textContent='自訂設定檢查失敗，可按重新檢查重試。';el('sm-custom-status').className='small text-danger mb-2';failure(xhr,status);});
+  }
+  function outboundStatus(){
+    el('sm-outbound-status').textContent='共 '+outboundRows.length+' 封往外寄被攔截的郵件（保留 30 天）。放行會寄給外部收件人並略過當初攔截；SMTP 連線階段拒收不會出現在此。';
+  }
+  function renderOutbound(){
+    var term=el('sm-outbound-search').value.toLowerCase(),tbody=el('sm-outbound-rows');tbody.replaceChildren();
+    var rows=outboundRows.filter(function(r){return [r.sender,r.rcpt,r.subject,r.user].join(' ').toLowerCase().indexOf(term)>=0;});
+    if(!rows.length){var tr=node('tr'),td=node('td',outboundRows.length?'沒有符合搜尋的郵件。':'目前沒有被攔截的外寄郵件。');td.colSpan=4;td.className='small text-muted';tr.appendChild(td);tbody.appendChild(tr);return;}
+    rows.forEach(function(r){
+      var tr=node('tr');
+      tr.appendChild(node('td',r.created?new Date(r.created*1000).toLocaleString('zh-TW',{hour12:false}):'—','small'));
+      var td=node('td');td.appendChild(node('div',(r.sender||'（空寄件者）')+' → '+(r.rcpt||''),'small'));
+      var subject=node('div',r.subject||'（無主旨）','small text-muted sm-subject');subject.title=r.subject||'';td.appendChild(subject);
+      if(r.virus){td.appendChild(node('span','病毒命中','badge bg-danger'));}
+      tr.appendChild(td);
+      tr.appendChild(node('td',Number(r.score).toFixed(2)));
+      td=node('td','',' sm-actions');
+      var rel=node('button','放行','btn btn-sm btn-outline-primary me-1');rel.type='button';rel.addEventListener('click',function(){releaseOutbound(r,rel);});td.appendChild(rel);
+      var del=node('button','刪除','btn btn-sm btn-outline-danger');del.type='button';del.addEventListener('click',function(){deleteOutbound(r,del);});td.appendChild(del);
+      tr.appendChild(td);tbody.appendChild(tr);
+    });
+  }
+  function releaseOutbound(r,button){
+    var warn='確定放行這封往外寄的郵件，寄給外部收件人？\n\n寄件者：'+(r.sender||'（空）')+'\n外部收件者：'+(r.rcpt||'')+'\n主旨：'+(r.subject||'（無）')+'\n\n放行會把原信寄出，略過當初的攔截。';
+    if(!window.confirm(warn))return;
+    var payload={id:r.id};
+    if(r.virus){ if(!window.confirm('⚠ 這封外寄信命中病毒掃描。\n\n放行會把可能含惡意內容的郵件寄給外部收件人 '+(r.rcpt||'')+'。\n\n你確定仍要放行嗎？'))return; payload.confirm_virus=true; }
+    button.disabled=true;message('正在放行並寄出…',false);
+    SM.request('outbound_release',payload).done(function(resp){
+      message(resp.message||'已放行。',false);
+      outboundRows=outboundRows.filter(function(x){return x.id!==r.id;});renderOutbound();outboundStatus();
+    }).fail(failure).always(function(){button.disabled=false;});
+  }
+  function deleteOutbound(r,button){
+    if(!window.confirm('確定刪除這封被攔截的外寄郵件？刪除後不會寄出，也無法復原。\n\n收件者：'+(r.rcpt||'')+'\n主旨：'+(r.subject||'（無）')))return;
+    button.disabled=true;message('正在刪除…',false);
+    SM.request('outbound_delete',{id:r.id}).done(function(resp){
+      message(resp.message||'已刪除。',false);
+      outboundRows=outboundRows.filter(function(x){return x.id!==r.id;});renderOutbound();outboundStatus();
+    }).fail(failure).always(function(){button.disabled=false;});
+  }
+  function loadOutbound(){
+    el('sm-outbound-status').textContent='正在讀取外寄攔截清單…';
+    $.ajax({url:api,type:'GET',dataType:'json',timeout:20000,data:{op:'outbound'}}).done(function(r){outboundLoaded=true;outboundRows=r.data.rows||[];if(r.data.notify!==undefined)el('sm-outbound-notify').value=r.data.notify;outboundStatus();renderOutbound();}).fail(function(xhr,status){el('sm-outbound-status').textContent='清單讀取失敗，可按更新重試。';failure(xhr,status);});
+  }
   function loadState() {
     el('sm-refresh').disabled=true;
     $.ajax({url:api,type:'GET',dataType:'json',timeout:45000,data:{op:'state'}}).done(function(r){SM.state=r.data;drafts={};actions();symbols();loadMapOptions();policies();summary();message(r.data.errors.length?r.data.errors.join('；'):'已讀取目前生效設定。調整只在按下各區儲存後寫入。',!!r.data.errors.length);}).fail(failure).always(function(){el('sm-refresh').disabled=false;});
@@ -192,6 +326,23 @@
     function saveScope(reset,button){var target=el('sm-scope').value.trim();save('scope_score',{object:target,tag:el('sm-scope-tag').value,reject:el('sm-scope-reject').value,reset:reset,baseline:(SM.state.scope_baselines||{})[target]},button,refreshPolicies);}
     el('sm-scope-form').addEventListener('submit',function(e){e.preventDefault();saveScope(false,this.querySelector('button'));});el('sm-scope-reset').addEventListener('click',function(){saveScope(true,this);});
     el('sm-history-search').addEventListener('input',renderHistory);el('sm-history-refresh').addEventListener('click',loadHistory);
-    openPanel(window.location.hash.indexOf('#sm-')===0?window.location.hash.substring(4):'overview');loadState();
+    el('sm-rejected-search').addEventListener('input',renderRejected);el('sm-rejected-refresh').addEventListener('click',loadRejected);
+    el('sm-rejected-notify-form').addEventListener('submit',function(e){e.preventDefault();save('rejected_notify_save',{value:el('sm-rejected-notify').value},this.querySelector('button'),function(d){if(d&&d.notify!==undefined)el('sm-rejected-notify').value=d.notify;});});
+    el('sm-outbound-search').addEventListener('input',renderOutbound);el('sm-outbound-refresh').addEventListener('click',loadOutbound);
+    el('sm-custom-refresh').addEventListener('click',loadCustomizations);
+    el('sm-update-form').addEventListener('submit',function(e){
+      e.preventDefault();
+      var pass=el('sm-update-pass').value;
+      if(!pass){message('請輸入更新密碼。',true);return;}
+      if(!window.confirm('確定現在更新 Mailcow？\n\n會執行官方 update.sh 並重新套用本機自訂設定。\n過程中網頁與郵件服務會短暫中斷，請避開尖峰時段。'))return;
+      var btn=this.querySelector('button');btn.disabled=true;
+      SM.request('update_request',{passphrase:pass}).done(function(r){
+        el('sm-update-pass').value='';
+        message(r.message||'已送出更新請求。',false);
+        pollUpdate();
+      }).fail(function(xhr,status){failure(xhr,status);btn.disabled=false;});
+    });
+    el('sm-outbound-notify-form').addEventListener('submit',function(e){e.preventDefault();save('outbound_notify_save',{value:el('sm-outbound-notify').value},this.querySelector('button'),function(d){if(d&&d.notify!==undefined)el('sm-outbound-notify').value=d.notify;});});
+    openPanel(window.location.hash.indexOf('#sm-')===0?window.location.hash.substring(4):'overview');loadState();loadCustomizations();loadUpdate();
   });
 })(jQuery);

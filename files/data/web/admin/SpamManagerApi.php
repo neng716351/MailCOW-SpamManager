@@ -12,6 +12,10 @@ try{
     $op=$_GET['op'] ?? 'state';
     if($op==='state')$data=sm_state();
     elseif($op==='history'){$history=sm_controller('history');$data=['rows'=>array_slice($history['rows'] ?? [],0,100)];}
+    elseif($op==='rejected'){$data=['rows'=>sm_rejected(),'notify'=>sm_rejected_notify()];}
+    elseif($op==='outbound'){$data=['rows'=>sm_outbound(),'notify'=>sm_outbound_notify()];}
+    elseif($op==='customizations'){$data=['items'=>sm_customizations()];}
+    elseif($op==='update_status'){$data=sm_update_status();}
     else throw new InvalidArgumentException('未知的讀取操作。');
     sm_reply(200,['ok'=>true,'data'=>$data]);
   }

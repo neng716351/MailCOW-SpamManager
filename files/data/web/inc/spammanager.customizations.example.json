@@ -1,0 +1,31 @@
+{
+  "_comment": "Copy to spammanager.customizations.json and edit for your deployment. It drives the 'local customizations' panel on the Spam Manager overview tab, which checks whether your local changes survived the last `update.sh` (it merges with -X theirs, so tracked files you modified can be reverted). Paths are as seen from inside the php-fpm container. Keep your real file out of version control: it describes your deployment.",
+  "checks": [
+    {
+      "name": "rspamd quarantine/hold rules",
+      "path": "/localcheck/rspamd-local.d/metadata_exporter.conf",
+      "must": ["outbound_reject", "OUTBOUND_HOLD", "inbound_reject", "INBOUND_NOTIFY"],
+      "must_not": ["if not task:has_symbol"]
+    },
+    {
+      "name": "outbound_hold table definition (init_db)",
+      "path": "/web/inc/init_db.inc.php",
+      "must": ["\"outbound_hold\""]
+    },
+    {
+      "name": "Spam Manager menu entry (base.twig)",
+      "path": "/web/templates/base.twig",
+      "must": ["/admin/SpamManager"]
+    }
+  ],
+  "files": [
+    "/web/admin/SpamManager.php",
+    "/web/admin/SpamManagerApi.php",
+    "/web/inc/spammanager.inc.php",
+    "/web/js/site/spammanager.js",
+    "/web/templates/spammanager.twig",
+    "/web/templates/spammanager-controls.twig",
+    "/meta_exporter/pipe_outbound.php",
+    "/meta_exporter/pipe_inbound_notify.php"
+  ]
+}

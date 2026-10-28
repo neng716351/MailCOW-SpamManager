@@ -1,0 +1,13 @@
+diff --git a/data/web/templates/base.twig b/data/web/templates/base.twig
+index e0f3b5b3..ae2d5520 100644
+--- a/data/web/templates/base.twig
++++ b/data/web/templates/base.twig
+@@ -75,6 +75,8 @@
+           <ul class="dropdown-menu">
+             <li><a href="/admin/mailbox" class="dropdown-item {% if is_uri('mailbox') %}active{% endif %}">{{ lang.header.mailcow_config }}</a></li>
+             <li><a href="/quarantine" class="dropdown-item {% if is_uri('quarantine') %}active{% endif %}">{{ lang.header.quarantine }}</a></li>
++            {# Local addition: entry point for the custom Spam Manager page #}
++            <li><a href="/admin/SpamManager" class="dropdown-item {% if is_uri('SpamManager') %}active{% endif %}">Spam Manager</a></li>
+             <li><a href="/admin/queue" class="dropdown-item {% if is_uri('queue') %}active{% endif %}">{{ lang.queue.queue_manager }}</a></li>
+             <li><a href="#" class="dropdown-item" data-bs-toggle="modal" data-container="sogo-mailcow" data-bs-target="#RestartContainer">{{ lang.header.restart_sogo }}</a></li>
+           </ul>
