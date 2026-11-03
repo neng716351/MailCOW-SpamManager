@@ -1,0 +1,4 @@
+# Source IP blacklist (rspamd multimap type=ip)
+# One IPv4/IPv6 address or CIDR range per line. # starts a comment.
+# 203.0.113.7
+# 203.0.113.0/24

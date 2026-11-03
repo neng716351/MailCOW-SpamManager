@@ -1,0 +1,2 @@
+# Reverse-DNS (PTR) host name blacklist (rspamd multimap type=hostname, regexp)
+# /\.dynamic\.example\.net$/i

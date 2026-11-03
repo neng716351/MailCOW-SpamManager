@@ -8,10 +8,12 @@ Mailcow 管理介面的 SpamManager 擴充功能，提供繁體中文的垃圾�
 
 - 檢視及調整 Rspamd 全域動作門檻與評分項目。
 - 管理 Mailcow/Rspamd 全域名單、信箱／網域政策與專屬門檻。
+- 全域地址名單提供條件類型助手：精確地址、整個網域、網域含子網域、寄件者帳號，自動產生並轉義正規表示式。
+- 主機層名單：來源 IP／網段、寄件主機 HELO、反解（PTR）名稱與來源 ASN，各自以對應格式驗證。
 - 建立以寄件者顯示名稱為條件的防冒名規則。
 - 查看管理操作前的設定快照與近期紀錄。
 - 使用繁體中文介面及評分規則說明。
-- 檢視被拒收且已留存的郵件，並放行投遞到本機收件信箱。
+- 檢視隔離區留存的郵件，可依動作篩選（拒收／加標記／全部）；拒收的可放行投遞到本機收件信箱。
 - 留存往外寄但被拒收的郵件（誤判常見於此），由管理員決定放行給外部收件人或刪除。
 - 兩種攔截都可設定通知收件人；命中病毒的外寄郵件放行時需額外確認。
 - 在總覽頁即時檢查本機自訂設定是否被 Mailcow 更新覆蓋。
@@ -22,6 +24,8 @@ Mailcow 管理介面的 SpamManager 擴充功能，提供繁體中文的垃圾�
 - 程式透過 Mailcow 管理員 session 與原生 CSRF 機制保護寫入操作；不要將 API 端點暴露給未受信任的網路。
 - 防冒名功能比對郵件的 From 顯示名稱及允許信箱；它不會驗證寄件者身分，也不能取代 SPF、DKIM 或 DMARC。
 - 既有但未含 `mailcow-impersonation-form-v1` 中繼資料的自訂規則，不會自動出現在表單中。請先備份並於測試環境確認，再透過管理介面重建為表單規則。
+- 主機層名單的 HELO 名稱可被寄件端任意宣告，不要單憑 HELO 放行；反解名稱需要來源有 PTR 紀錄才會命中。
+- IP 與 ASN 名單不接受正規表示式，寫入前分別以 IP／CIDR 與 ASN 格式驗證。
 - 變更可能影響郵件投遞。請先在測試環境驗證並備份 Mailcow 設定。
 
 ## 安裝
@@ -46,15 +50,29 @@ Mailcow 管理介面的 SpamManager 擴充功能，提供繁體中文的垃圾�
    - 套用 `patches/base.twig.patch`（在管理選單加入 Spam Manager 入口）。
    - 執行 `rspamadm configtest` 確認設定無誤後重啟 `rspamd-mailcow`。
 
-5. 若要使用總覽頁的「本機自訂設定狀態」檢查：
+5. 若要使用主機層名單（來源 IP／HELO／反解名稱／ASN），另外安裝：
+
+   - 將 `files/data/conf/rspamd/custom/` 的 5 個 `.map` 範本複製到 Mailcow 的
+     `data/conf/rspamd/custom/`，擁有者與權限沿用同目錄其他 map（通常為 uid 82、`0644`）。
+     範本只有註解，條件請從管理頁加入。
+   - 套用 `patches/multimap.conf.patch`（新增 `GLOBAL_IP_BL`、`GLOBAL_HELO_WL/BL`、
+     `GLOBAL_HOSTNAME_WL/BL` 五條規則）。
+   - 套用 `patches/vars.inc.php.patch`（把新名單登錄到 `$RSPAMD_MAPS`。**這步不能省**：
+     原生 `rspamd_maps('edit')` 會拒絕未登錄的名單，少了它頁面讀得到卻存不進去）。
+   - 執行 `rspamadm configtest` 確認設定無誤後重啟 `rspamd-mailcow`。
+
+   `ip_wl.map` 與 `bad_asn.map` 是 Mailcow 原生既有的名單，此補丁只是把它們登錄成可在頁面上編輯；
+   刻意沒有提供 ASN 白名單，因為放行整個 ASN 等於替該 ISP 所有客戶跳過過濾。
+
+6. 若要使用總覽頁的「本機自訂設定狀態」檢查：
 
    - 參考 `docker-compose.override.yml.example` 設定 php-fpm 的唯讀掛載，
      並以 `docker compose up -d --no-deps php-fpm-mailcow` 套用。
    - 將 `files/data/web/inc/spammanager.customizations.example.json` 複製為
      `spammanager.customizations.json` 並依你的部署調整。該檔描述你的部署細節，請勿提交至公開 repo。
 
-6. 確認檔案擁有者與權限沿用 Mailcow 原設定，然後重新載入 Twig 快取並重啟 `php-fpm-mailcow`，讓 OPcache 載入新程式。
-7. 以 Mailcow 管理員登入並開啟 `/admin/SpamManager`。先讀取設定、檢查記錄，再進行任何寫入。
+7. 確認檔案擁有者與權限沿用 Mailcow 原設定，然後重新載入 Twig 快取並重啟 `php-fpm-mailcow`，讓 OPcache 載入新程式。
+8. 以 Mailcow 管理員登入並開啟 `/admin/SpamManager`。先讀取設定、檢查記錄，再進行任何寫入。
 
 ## 郵件留存與放行
 

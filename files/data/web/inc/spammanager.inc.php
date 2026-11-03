@@ -23,20 +23,50 @@ function sm_symbols(): array {
   }
   ksort($out);return array_values($out);
 }
+// Map kinds mirror the $RSPAMD_MAPS keys: 'regex' lines are rspamd regular
+// expressions, 'ip' lines are addresses or CIDR ranges, 'asn' lines are
+// "<asn> [score] [#comment]". Each kind needs its own validator, so the kind
+// travels with the map to both the page and save_map().
+const SM_MAP_KIND_HINT = [
+  'regex' => '不是合法的正規表示式',
+  'ip' => '不是合法的 IP 位址或 CIDR 網段',
+  'asn' => '不是合法的 ASN 條目（格式：ASN 或 ASN 分數，可加 # 說明）',
+];
+function sm_valid_ip_entry(string $line): bool {
+  if (!str_contains($line, '/')) return (bool)filter_var($line, FILTER_VALIDATE_IP);
+  [$addr, $len] = explode('/', $line, 2);
+  if (!ctype_digit($len) || !filter_var($addr, FILTER_VALIDATE_IP)) return false;
+  return (int)$len <= (str_contains($addr, ':') ? 128 : 32);
+}
+function sm_valid_asn_entry(string $line): bool {
+  // A trailing "# ..." comment is how the shipped bad_asn.map annotates providers.
+  $parts = preg_split('/\s+/u', trim(preg_replace('/\s*#.*$/u', '', $line)), -1, PREG_SPLIT_NO_EMPTY);
+  if (!$parts || count($parts) > 2) return false;
+  $asn = preg_replace('/^AS/i', '', $parts[0]);
+  if (!ctype_digit($asn) || (int)$asn < 1 || (int)$asn > 4294967295) return false;
+  return count($parts) === 1 || is_numeric($parts[1]);
+}
+function sm_valid_map_entry(string $kind, string $line): bool {
+  if ($kind === 'ip') return sm_valid_ip_entry($line);
+  if ($kind === 'asn') return sm_valid_asn_entry($line);
+  return is_valid_regex($line);
+}
 function sm_maps(): array {
   global $RSPAMD_MAPS;
-  $labels=['global_mime_from_blacklist.map'=>'From 寄件人黑名單','global_mime_from_whitelist.map'=>'From 寄件人白名單','global_smtp_from_blacklist.map'=>'SMTP 寄件人黑名單','global_smtp_from_whitelist.map'=>'SMTP 寄件人白名單','global_rcpt_blacklist.map'=>'收件人黑名單','global_rcpt_whitelist.map'=>'收件人白名單'];
+  $labels=['global_mime_from_blacklist.map'=>'From 寄件人黑名單','global_mime_from_whitelist.map'=>'From 寄件人白名單','global_smtp_from_blacklist.map'=>'SMTP 寄件人黑名單','global_smtp_from_whitelist.map'=>'SMTP 寄件人白名單','global_rcpt_blacklist.map'=>'收件人黑名單','global_rcpt_whitelist.map'=>'收件人白名單','global_helo_whitelist.map'=>'寄件主機 HELO 白名單','global_helo_blacklist.map'=>'寄件主機 HELO 黑名單','global_hostname_whitelist.map'=>'寄件主機反解名稱白名單','global_hostname_blacklist.map'=>'寄件主機反解名稱黑名單','ip_wl.map'=>'來源 IP／網段白名單','global_ip_blacklist.map'=>'來源 IP／網段黑名單','bad_asn.map'=>'來源 ASN 黑名單'];
   $out=[];
-  foreach ($RSPAMD_MAPS['regex'] as $label=>$file) {
-    $path='/rspamd_custom_maps/'.$file;
-    if (!is_file($path)) continue;
-    $content=file_get_contents($path);
-    $entries=array_filter(preg_split('/\R/u',$content),fn($line)=>trim($line)!=='' && !str_starts_with(ltrim($line),'#'));
-    $out[$file]=['file'=>$file,'label'=>$labels[$file] ?? $label,'content'=>$content,'hash'=>hash('sha256',$content),'count'=>count($entries),'global'=>isset($labels[$file])];
+  foreach ($RSPAMD_MAPS as $kind=>$files) {
+    if (!is_array($files) || !isset(SM_MAP_KIND_HINT[$kind])) continue;
+    foreach ($files as $label=>$file) {
+      $path='/rspamd_custom_maps/'.$file;
+      if (!is_file($path)) continue;
+      $content=file_get_contents($path);
+      $entries=array_filter(preg_split('/\R/u',$content),fn($line)=>trim($line)!=='' && !str_starts_with(ltrim($line),'#'));
+      $out[$file]=['file'=>$file,'kind'=>$kind,'label'=>$labels[$file] ?? $label,'content'=>$content,'hash'=>hash('sha256',$content),'count'=>count($entries),'global'=>isset($labels[$file])];
+    }
   }
   return $out;
-}
-function sm_policies(): array {
+}function sm_policies(): array {
   global $pdo;
   $rows=$pdo->query("SELECT prefid,object,`option`,value FROM filterconf WHERE `option` IN ('whitelist_from','blacklist_from','lowspamlevel','highspamlevel') ORDER BY object,`option`,prefid")->fetchAll(PDO::FETCH_ASSOC);
   foreach($rows as &$row)$row['hash']=hash('sha256',json_encode([$row['object'],$row['option'],$row['value']]));unset($row);return $rows;
@@ -61,15 +91,18 @@ function sm_scope_hash(string $object,array $policies): string {
   return hash('sha256',json_encode($rows));
 }
 function sm_rejected(): array {
-  // Native quarantine stores a copy of rejected mail whose recipient is a local
-  // mailbox (SMTP-stage and some blacklisted rejects are not captured). Reuse the
-  // native getter and surface only reject items for release.
+  // Native quarantine stores a copy of mail whose recipient is a local mailbox
+  // (SMTP-stage and some blacklisted rejects are not captured). Reuse the native
+  // getter and return every held item with its action: since the quarantine
+  // selector was widened on 2026-10-28 the table also holds 'add header' and
+  // 'rewrite subject' mail, and the page filters by action. Only 'reject' items
+  // can be released, which the 'release' operation re-checks server-side.
   $items = quarantine('get');
   if (!is_array($items)) return [];
   $out = [];
   foreach ($items as $r) {
-    if (($r['action'] ?? '') !== 'reject') continue;
     $out[] = [
+      'action' => (string)($r['action'] ?? ''),
       'id' => (int)($r['id'] ?? 0),
       'qid' => (string)($r['qid'] ?? ''),
       'created' => isset($r['created']) ? (int)$r['created'] : null,
@@ -254,7 +287,9 @@ function sm_mutate(string $op,array $p): array {
       if(!hash_equals($old['hash'],(string)($p['baseline'] ?? '')))throw new RuntimeException('名單已被修改，請重新載入後合併。');
       $content=$p['content'] ?? '';if(!is_string($content) || strlen($content)>262144)throw new InvalidArgumentException('名單內容過長。');
       $lines=preg_split('/\R/u',$content);if(count($lines)>2000)throw new InvalidArgumentException('每份名單最多 2000 行。');
-      foreach($lines as $i=>$line){$line=trim($line);if($line==='' || str_starts_with($line,'#'))continue;if(!is_valid_regex($line))throw new InvalidArgumentException('第 '.($i+1).' 行正規表示式格式不正確。');}
+      $kind=$old['kind'] ?? 'regex';
+      foreach($lines as $i=>$line){$line=trim($line);if($line==='' || str_starts_with($line,'#'))continue;
+        if(!sm_valid_map_entry($kind,$line))throw new InvalidArgumentException('第 '.($i+1).' 行'.SM_MAP_KIND_HINT[$kind].'：'.$line);}
       sm_backup($op,$old,['file'=>$file,'content'=>$content]);sm_native(fn()=>rspamd_maps('edit',['map'=>[$file],'rspamd_map_data'=>$content]));
       $actual=sm_maps()[$file];if($actual['content']!==trim($content).PHP_EOL)throw new RuntimeException('名單回讀不符。');
       return ['message'=>'名單已儲存，Rspamd 會依原生動態名單機制重新載入。','map'=>$actual];

@@ -1,0 +1,4 @@
+# Sending host HELO allowlist (rspamd multimap type=helo, regexp)
+# One regular expression per line, matched against the HELO/EHLO name.
+# /^mta\.example\.com$/i
+# /\.example\.com$/i

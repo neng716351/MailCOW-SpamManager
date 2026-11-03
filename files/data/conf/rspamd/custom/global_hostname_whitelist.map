@@ -1,0 +1,2 @@
+# Reverse-DNS (PTR) host name allowlist (rspamd multimap type=hostname, regexp)
+# /\.example\.com$/i

@@ -1,0 +1,59 @@
+diff --git a/data/conf/rspamd/local.d/multimap.conf b/data/conf/rspamd/local.d/multimap.conf
+index 888bf363..1d285c0b 100644
+--- a/data/conf/rspamd/local.d/multimap.conf
++++ b/data/conf/rspamd/local.d/multimap.conf
+@@ -179,3 +179,54 @@ BAD_SUBJECT_00 {
+   score = 6.0;
+   symbols_set = ["BAD_SUBJECT_00"];
+ }
++
++# BEGIN local host-level lists (Spam Manager)
++# Local addition 2026-11-03: the global address lists above cannot express a source
++# IP, a sending host name or an ASN, so these add those conditions for the Spam
++# Manager page. Scores mirror the global address lists (+/-2050 = force the action).
++# There is deliberately no ASN allowlist: whitelisting a whole ISP bypasses filtering
++# for every one of its customers. Whitelist that provider's IP ranges in ip_wl.map.
++GLOBAL_IP_BL {
++  type = "ip";
++  map = "${LOCAL_CONFDIR}/custom/global_ip_blacklist.map";
++  score = 2050;
++  description = "Source IP is on the local blacklist";
++  symbols_set = ["GLOBAL_IP_BL"];
++}
++
++GLOBAL_HELO_WL {
++  type = "helo";
++  map = "${LOCAL_CONFDIR}/custom/global_helo_whitelist.map";
++  regexp = true;
++  score = -2050;
++  description = "Sending host HELO is on the local allowlist";
++  symbols_set = ["GLOBAL_HELO_WL"];
++}
++
++GLOBAL_HELO_BL {
++  type = "helo";
++  map = "${LOCAL_CONFDIR}/custom/global_helo_blacklist.map";
++  regexp = true;
++  score = 2050;
++  description = "Sending host HELO is on the local blacklist";
++  symbols_set = ["GLOBAL_HELO_BL"];
++}
++
++GLOBAL_HOSTNAME_WL {
++  type = "hostname";
++  map = "${LOCAL_CONFDIR}/custom/global_hostname_whitelist.map";
++  regexp = true;
++  score = -2050;
++  description = "Sending host reverse DNS name is on the local allowlist";
++  symbols_set = ["GLOBAL_HOSTNAME_WL"];
++}
++
++GLOBAL_HOSTNAME_BL {
++  type = "hostname";
++  map = "${LOCAL_CONFDIR}/custom/global_hostname_blacklist.map";
++  regexp = true;
++  score = 2050;
++  description = "Sending host reverse DNS name is on the local blacklist";
++  symbols_set = ["GLOBAL_HOSTNAME_BL"];
++}
++# END local host-level lists (Spam Manager)

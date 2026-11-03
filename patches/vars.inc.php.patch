@@ -1,0 +1,28 @@
+diff --git a/data/web/inc/vars.inc.php b/data/web/inc/vars.inc.php
+index 72c5da67..553271e1 100644
+--- a/data/web/inc/vars.inc.php
++++ b/data/web/inc/vars.inc.php
+@@ -282,7 +282,22 @@ $RSPAMD_MAPS = array(
+     'Bad Languages' => 'bad_languages.map',
+     'Bulk Mail Headers' => 'bulk_header.map',
+     'Bad (Junk) Mail Headers' => 'bad_header.map',
+-    'Monitoring Hosts' => 'monitoring_nolog.map'
++    'Monitoring Hosts' => 'monitoring_nolog.map',
++    // Local addition 2026-11-03: host-level regex lists for the Spam Manager page.
++    'Sending Host HELO Allowlist' => 'global_helo_whitelist.map',
++    'Sending Host HELO Denylist' => 'global_helo_blacklist.map',
++    'Sending Host rDNS Allowlist' => 'global_hostname_whitelist.map',
++    'Sending Host rDNS Denylist' => 'global_hostname_blacklist.map'
++  ),
++  // Local addition 2026-11-03: these are NOT regex maps, so they get their own keys.
++  // rspamd_maps('edit') scans every key, so they stay writable; the native maps page
++  // reads only ['regex'], so it is unchanged and these are edited from Spam Manager.
++  'ip' => array(
++    'Source IP Allowlist' => 'ip_wl.map',
++    'Source IP Denylist' => 'global_ip_blacklist.map'
++  ),
++  'asn' => array(
++    'Sender ASN Denylist' => 'bad_asn.map'
+   )
+ );
+ 

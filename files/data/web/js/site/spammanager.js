@@ -104,9 +104,26 @@
     var action = total >= reject ? '達拒收門檻' : total >= tag ? '達垃圾標記門檻' : total >= grey ? '達灰名單門檻' : '未達一般過濾門檻';
     el('sm-simulation').textContent = names.length ? names.length + ' 項合計 ' + total.toFixed(2) + ' 分 → ' + action + (Object.keys(drafts).length ? '（含未儲存權重）' : '') : '勾選項目試算總分；也可從郵件紀錄帶入命中項目。';
   }
+  var MAP_CONDITIONS = {
+    address: [{v:'addr',t:'精確地址',p:'例如 sender@example.com'},{v:'domain',t:'整個網域',p:'例如 example.com'},{v:'subdomain',t:'網域含子網域',p:'例如 example.com'},{v:'local',t:'寄件者帳號',p:'例如 newsletter'}],
+    host: [{v:'host',t:'精確主機名',p:'例如 mta.example.com'},{v:'hostsuffix',t:'主機名尾碼（含子網域）',p:'例如 example.com'}],
+    ip: [{v:'ip',t:'單一 IP 位址',p:'例如 203.0.113.7'},{v:'cidr',t:'網段（CIDR）',p:'例如 203.0.113.0/24'}],
+    asn: [{v:'asn',t:'ASN（用預設分數）',p:'例如 12874'},{v:'asnscore',t:'ASN + 自訂分數',p:'例如 12874 5'}]
+  };
+  var MAP_HINTS = {
+    address: '一行一個正規表示式；# 開頭為註解。比對郵件地址，不比對來源 IP 或主機名。',
+    host: '一行一個正規表示式；# 開頭為註解。比對主機名稱字串，不比對郵件地址。',
+    ip: '一行一個 IP 位址或 CIDR 網段；# 開頭為註解。此名單不接受正規表示式。',
+    asn: '一行一個 ASN，可在後面加一個自訂分數；# 開頭為註解。此名單不接受正規表示式。'
+  };
   function mapEffect(file) {
     if (file.indexOf('global_rcpt_white') === 0) return '比對收件地址，命中時可直接接受，會影響後續評分結果。';
     if (file.indexOf('global_rcpt_black') === 0) return '比對收件地址，命中時可直接拒收。';
+    if (file.indexOf('helo') >= 0) return '比對寄件伺服器自稱的 HELO／EHLO 名稱；命中時' + (file.indexOf('white') >= 0 ? '減 2050 分。' : '加 2050 分。') + 'HELO 可被偽造，請搭配其他條件使用。';
+    if (file.indexOf('hostname') >= 0) return '比對來源 IP 的反解（PTR）名稱；命中時' + (file.indexOf('white') >= 0 ? '減 2050 分。' : '加 2050 分。') + '沒有反解紀錄的來源不會命中。';
+    if (file === 'ip_wl.map') return '比對連線來源 IP 或網段；命中時減 2050 分，等同強制放行。請只填信任的中繼主機。';
+    if (file === 'global_ip_blacklist.map') return '比對連線來源 IP 或網段；命中時加 2050 分，等同強制拒收。';
+    if (file === 'bad_asn.map') return '比對來源 IP 所屬的 ASN（整個 ISP）；預設每筆加 5 分，可在每行第二欄自訂分數。範圍很廣，請謹慎。注意：此規則的「白名單則略過」條件（!MAILCOW_WHITE）在設定檢查中被丟棄，因此白名單寄件者也可能被加分。';
     if (file.indexOf('global_') === 0) return '比對' + (file.indexOf('mime') >= 0 ? '郵件 From 地址' : 'SMTP 信封寄件地址') + '；命中時' + (file.indexOf('white') >= 0 ? '減 2050 分。' : '加 2050 分。') + '其他規則仍可能改變最終動作。';
     return '此為 Mailcow 原有內容／來源名單，實際加減分取決於相應評分項目。';
   }
@@ -117,7 +134,23 @@
   }
   function showMap() {
     mapFile = el('sm-map-select').value; var m = SM.state.maps[mapFile]; if (!m) return;
-    el('sm-map-content').value = m.content; el('sm-map-effect').textContent = mapEffect(mapFile); el('sm-map-form').querySelector('button[type=submit]').disabled = false; mapCount();
+    el('sm-map-content').value = m.content; el('sm-map-effect').textContent = mapEffect(mapFile); el('sm-map-form').querySelector('button[type=submit]').disabled = false;
+    mapConditions(m); mapCount();
+  }
+  // Which conditions make sense depends on what the map matches: an address map takes
+  // an address or a domain, a HELO/rDNS map takes a host name, an IP map takes an
+  // address or CIDR, and bad_asn.map takes an ASN with an optional score.
+  function mapFamily(m) {
+    if (m.kind === 'ip') return 'ip';
+    if (m.kind === 'asn') return 'asn';
+    return (m.file.indexOf('helo') >= 0 || m.file.indexOf('hostname') >= 0) ? 'host' : 'address';
+  }
+  function mapConditions(m) {
+    var select = el('sm-map-kind'), list = MAP_CONDITIONS[mapFamily(m)];
+    select.replaceChildren();
+    list.forEach(function (c) { var o = node('option', c.t); o.value = c.v; select.appendChild(o); });
+    select.value = list[0].v; el('sm-map-address').placeholder = list[0].p;
+    el('sm-map-hint').textContent = MAP_HINTS[mapFamily(m)];
   }
   function mapCount() {
     var lines = el('sm-map-content').value.split(/\r?\n/).map(function (l) { return l.trim(); }).filter(function (l) { return l && l.charAt(0) !== '#'; });
@@ -170,23 +203,43 @@
     el('sm-history-status').textContent='正在讀取 Rspamd 掃描紀錄…';
     $.ajax({url:api,type:'GET',dataType:'json',timeout:20000,data:{op:'history'}}).done(function(r){historyLoaded=true;historyRows=r.data.rows;el('sm-history-status').textContent='共 '+historyRows.length+' 筆。此處是掃描歷史；SMTP 連線階段拒收及未記錄的郵件不會出現在此。';renderHistory();}).fail(function(xhr,status){el('sm-history-status').textContent='紀錄讀取失敗，可按更新重試。';failure(xhr,status);});
   }
+  // The quarantine table holds reject, add header and rewrite subject mail, so the
+  // tab filters by action. Only reject items get a release button: an 'add header'
+  // message was already delivered to the mailbox, so there is nothing to release.
+  var REJECTED_ACTION_LABELS={'reject':'拒收','add header':'加標記','rewrite subject':'改寫主旨','soft reject':'暫時拒收'};
+  function rejectedFilter(){var v=el('sm-rejected-action');return v?v.value:'reject';}
+  function rejectedVisible(){
+    var want=rejectedFilter();
+    return want==='all'?rejectedRows:rejectedRows.filter(function(r){return (r.action||'')===want;});
+  }
   function rejectedStatus(){
-    el('sm-rejected-status').textContent='共 '+rejectedRows.length+' 封被留存的拒收郵件。只含收件人為本機信箱且已留存者；SMTP 連線階段拒收與往外寄被拒不會出現在此。';
+    var total=rejectedRows.length,shown=rejectedVisible().length;
+    var counts={};rejectedRows.forEach(function(r){var a=r.action||'（未知）';counts[a]=(counts[a]||0)+1;});
+    var breakdown=Object.keys(counts).sort().map(function(a){return (REJECTED_ACTION_LABELS[a]||a)+' '+counts[a];}).join('、');
+    el('sm-rejected-status').textContent='隔離區共 '+total+' 封'+(breakdown?('（'+breakdown+'）'):'')+'，目前顯示 '+shown+' 封。只含收件人為本機信箱且已留存者；SMTP 連線階段拒收與往外寄被拒不會出現在此。';
   }
   function renderRejected(){
     var term=el('sm-rejected-search').value.toLowerCase(),tbody=el('sm-rejected-rows');tbody.replaceChildren();
-    var rows=rejectedRows.filter(function(r){return [r.sender,r.rcpt,r.subject].join(' ').toLowerCase().indexOf(term)>=0;});
-    if(!rows.length){var tr=node('tr'),td=node('td',rejectedRows.length?'沒有符合搜尋的郵件。':'目前沒有被留存的拒收郵件。');td.colSpan=4;td.className='small text-muted';tr.appendChild(td);tbody.appendChild(tr);return;}
+    var pool=rejectedVisible();
+    var rows=pool.filter(function(r){return [r.sender,r.rcpt,r.subject].join(' ').toLowerCase().indexOf(term)>=0;});
+    if(!rows.length){var tr=node('tr'),td=node('td',pool.length?'沒有符合搜尋的郵件。':(rejectedRows.length?'這個動作沒有留存的郵件，可改選「全部」。':'目前沒有被留存的郵件。'));td.colSpan=5;td.className='small text-muted';tr.appendChild(td);tbody.appendChild(tr);return;}
     rows.forEach(function(r){
-      var tr=node('tr');
+      var tr=node('tr'),action=r.action||'';
       tr.appendChild(node('td',r.created?new Date(r.created*1000).toLocaleString('zh-TW',{hour12:false}):'—','small'));
+      tr.appendChild(node('td',REJECTED_ACTION_LABELS[action]||action||'—','small '+(action==='reject'?'text-danger':'text-warning')));
       var td=node('td');td.appendChild(node('div',(r.sender||'（空寄件者）')+' → '+(r.rcpt||''),'small'));
       var subject=node('div',r.subject||'（無主旨）','small text-muted sm-subject');subject.title=r.subject||'';td.appendChild(subject);
       if(r.virus){var vb=node('span','病毒命中','badge bg-danger');td.appendChild(vb);}
       tr.appendChild(td);
       tr.appendChild(node('td',Number(r.score).toFixed(2)));
-      td=node('td','',' sm-actions');var b=node('button','放行','btn btn-sm btn-outline-primary');b.type='button';
-      b.addEventListener('click',function(){releaseRejected(r,b);});td.appendChild(b);tr.appendChild(td);
+      td=node('td','',' sm-actions');
+      if(action==='reject'){
+        var b=node('button','放行','btn btn-sm btn-outline-primary');b.type='button';
+        b.addEventListener('click',function(){releaseRejected(r,b);});td.appendChild(b);
+      }else{
+        td.appendChild(node('span','已投遞，無需放行','small text-muted'));
+      }
+      tr.appendChild(td);
       tbody.appendChild(tr);
     });
   }
@@ -199,7 +252,7 @@
     }).fail(failure).always(function(){button.disabled=false;});
   }
   function loadRejected(){
-    el('sm-rejected-status').textContent='正在讀取被留存的拒收郵件…';
+    el('sm-rejected-status').textContent='正在讀取隔離區留存的郵件…';
     $.ajax({url:api,type:'GET',dataType:'json',timeout:20000,data:{op:'rejected'}}).done(function(r){rejectedLoaded=true;rejectedRows=r.data.rows||[];if(r.data.notify!==undefined)el('sm-rejected-notify').value=r.data.notify;rejectedStatus();renderRejected();}).fail(function(xhr,status){el('sm-rejected-status').textContent='清單讀取失敗，可按更新重試。';failure(xhr,status);});
   }
   var updatePolling=false;
@@ -319,7 +372,61 @@
     el('sm-save-symbols').addEventListener('click',function(){var originals={};SM.state.symbols.forEach(function(s){originals[s.name]=s.weight;});var changes=Object.keys(drafts).map(function(k){return {name:k,value:drafts[k],baseline:originals[k]};});save('save_symbols',{changes:changes},this,function(){changes.forEach(function(c){SM.state.symbols.find(function(s){return s.name===c.name;}).weight=Number(c.value);});drafts={};symbols();simulate();});});
     el('sm-map-select').addEventListener('change',function(){if(mapFile && el('sm-map-content').value!==SM.state.maps[mapFile].content && !window.confirm('切換名單會捨棄未儲存內容，是否繼續？')){this.value=mapFile;return;}showMap();});
     el('sm-map-content').addEventListener('input',mapCount);
-    el('sm-map-insert').addEventListener('click',function(){var address=el('sm-map-address').value.trim();if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)){message('請輸入完整郵件地址。',true);return;}var escaped=address.replace(/[.*+?^${}()|[\]\\]/g,'\\$&').replace(/\//g,'\\/');var area=el('sm-map-content');area.value=area.value.replace(/\s*$/,'')+'\n/^'+escaped+'$/i\n';mapCount();});
+    // The helper escapes the input and emits the entry the selected map expects, so
+    // admins never have to hand-write a regex. The backend re-validates every line.
+    function mapEscape(value){return value.replace(/[.*+?^${}()|[\]\\]/g,'\\$&').replace(/\//g,'\\/');}
+    function mapRule(family,kind,raw){
+      if(family==='address'){
+        if(kind==='addr'){
+          if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw))throw '請輸入完整郵件地址，例如 sender@example.com。';
+          return '/^'+mapEscape(raw)+'$/i';
+        }
+        if(kind==='local'){
+          if(!/^[^\s@]+$/.test(raw))throw '請只輸入 @ 之前的帳號部分，例如 newsletter。';
+          return '/^'+mapEscape(raw)+'@/i';
+        }
+        var d=mapDomain(raw);
+        return kind==='subdomain'?'/@(?:[^@]+\\.)?'+mapEscape(d)+'$/i':'/@'+mapEscape(d)+'$/i';
+      }
+      if(family==='host'){
+        var h=mapDomain(raw);
+        return kind==='hostsuffix'?'/(?:^|\\.)'+mapEscape(h)+'$/i':'/^'+mapEscape(h)+'$/i';
+      }
+      if(family==='ip'){
+        if(kind==='cidr'){
+          if(!/^[0-9a-fA-F:.]+\/\d{1,3}$/.test(raw))throw '請輸入網段，例如 203.0.113.0/24。';
+        }else if(!/^[0-9a-fA-F:.]+$/.test(raw)||raw.indexOf('/')>=0){throw '請輸入單一 IP 位址，例如 203.0.113.7。';}
+        return raw;
+      }
+      var parts=raw.replace(/^AS/i,'').split(/\s+/).filter(Boolean);
+      if(kind==='asnscore'){
+        if(parts.length!==2||!/^\d+$/.test(parts[0])||!/^-?\d+(\.\d+)?$/.test(parts[1]))throw '請輸入「ASN 分數」，例如 12874 5。';
+        return parts[0]+' '+parts[1];
+      }
+      if(parts.length!==1||!/^\d+$/.test(parts[0]))throw '請只輸入 ASN 數字，例如 12874。';
+      return parts[0];
+    }
+    function mapDomain(raw){
+      var d=raw.replace(/^@/,'').replace(/\.$/,'');
+      if(!/^(?=.{1,253}$)[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$/.test(d))throw '請輸入有效的網域或主機名，例如 example.com。';
+      return d;
+    }
+    el('sm-map-kind').addEventListener('change',function(){
+      var m=SM.state&&SM.state.maps[mapFile];if(!m)return;
+      var c=MAP_CONDITIONS[mapFamily(m)].find(function(x){return x.v===this.value;},this);
+      if(c)el('sm-map-address').placeholder=c.p;
+    });
+    el('sm-map-insert').addEventListener('click',function(){
+      var m=SM.state&&SM.state.maps[mapFile];if(!m)return;
+      var rule;
+      try{rule=mapRule(mapFamily(m),el('sm-map-kind').value,el('sm-map-address').value.trim());}
+      catch(err){message(err,true);return;}
+      var area=el('sm-map-content');
+      if(area.value.split(/\r?\n/).some(function(line){return line.trim()===rule;})){message('這條規則已在名單中：'+rule,true);return;}
+      area.value=area.value.replace(/\s*$/,'')+'\n'+rule+'\n';mapCount();
+      el('sm-map-address').value='';
+      message('已加入 '+rule+'，請按「驗證並儲存名單」實際寫入。',false);
+    });
     el('sm-map-form').addEventListener('submit',function(e){e.preventDefault();if(!SM.state || !SM.state.maps[mapFile])return;var file=mapFile;save('save_map',{file:file,content:el('sm-map-content').value,baseline:SM.state.maps[file].hash},this.querySelector('button[type=submit]'),function(d){SM.state.maps[file]=d.map;loadMapOptions();summary();});});
     el('sm-scope').addEventListener('change',scope);
     el('sm-policy-form').addEventListener('submit',function(e){e.preventDefault();save('policy_add',{object:el('sm-scope').value.trim(),kind:el('sm-policy-kind').value,value:el('sm-policy-value').value},this.querySelector('button'),refreshPolicies);});
@@ -327,6 +434,7 @@
     el('sm-scope-form').addEventListener('submit',function(e){e.preventDefault();saveScope(false,this.querySelector('button'));});el('sm-scope-reset').addEventListener('click',function(){saveScope(true,this);});
     el('sm-history-search').addEventListener('input',renderHistory);el('sm-history-refresh').addEventListener('click',loadHistory);
     el('sm-rejected-search').addEventListener('input',renderRejected);el('sm-rejected-refresh').addEventListener('click',loadRejected);
+    el('sm-rejected-action').addEventListener('change',function(){rejectedStatus();renderRejected();});
     el('sm-rejected-notify-form').addEventListener('submit',function(e){e.preventDefault();save('rejected_notify_save',{value:el('sm-rejected-notify').value},this.querySelector('button'),function(d){if(d&&d.notify!==undefined)el('sm-rejected-notify').value=d.notify;});});
     el('sm-outbound-search').addEventListener('input',renderOutbound);el('sm-outbound-refresh').addEventListener('click',loadOutbound);
     el('sm-custom-refresh').addEventListener('click',loadCustomizations);

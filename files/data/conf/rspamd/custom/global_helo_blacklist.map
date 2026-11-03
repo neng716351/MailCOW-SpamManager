@@ -1,0 +1,3 @@
+# Sending host HELO blacklist (rspamd multimap type=helo, regexp)
+# /^user$/i
+# /\.badhost\.example$/i
