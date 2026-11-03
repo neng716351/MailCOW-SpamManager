@@ -30,7 +30,7 @@ function sm_symbols(): array {
 const SM_MAP_KIND_HINT = [
   'regex' => '不是合法的正規表示式',
   'ip' => '不是合法的 IP 位址或 CIDR 網段',
-  'asn' => '不是合法的 ASN 條目（格式：ASN 或 ASN 分數，可加 # 說明）',
+  'asn' => '不是合法的 ASN 條目（格式：ASN，或 ASN 加一個分數倍數，可再加 # 說明）',
 ];
 function sm_valid_ip_entry(string $line): bool {
   if (!str_contains($line, '/')) return (bool)filter_var($line, FILTER_VALIDATE_IP);

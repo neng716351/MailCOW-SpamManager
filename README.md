@@ -169,6 +169,13 @@ php -l files/data/web/inc/impersonation.inc.php
 
 版號採語意化版本（SemVer）。目前版本見 `VERSION`。
 
+### v1.1.1
+
+- 修正 ASN 名單的欄位說明：第二欄是**分數倍數**而非絕對分數（規則預設 5 分，寫 `2` 即 10 分）。
+  原本標為「自訂分數」會誤導。
+- 實測確認 `LOCAL_BL_ASN` 的 `!MAILCOW_WHITE` 條件在執行期有效，`rspamadm configtest` 的
+  「cannot register delayed dependency」警告不影響功能，不需要為它改動設定。
+
 ### v1.1.0
 
 - 新增主機層名單：來源 IP／網段、寄件主機 HELO、反解（PTR）名稱，並把原生既有的

@@ -108,13 +108,13 @@
     address: [{v:'addr',t:'精確地址',p:'例如 sender@example.com'},{v:'domain',t:'整個網域',p:'例如 example.com'},{v:'subdomain',t:'網域含子網域',p:'例如 example.com'},{v:'local',t:'寄件者帳號',p:'例如 newsletter'}],
     host: [{v:'host',t:'精確主機名',p:'例如 mta.example.com'},{v:'hostsuffix',t:'主機名尾碼（含子網域）',p:'例如 example.com'}],
     ip: [{v:'ip',t:'單一 IP 位址',p:'例如 203.0.113.7'},{v:'cidr',t:'網段（CIDR）',p:'例如 203.0.113.0/24'}],
-    asn: [{v:'asn',t:'ASN（用預設分數）',p:'例如 12874'},{v:'asnscore',t:'ASN + 自訂分數',p:'例如 12874 5'}]
+    asn: [{v:'asn',t:'ASN（用規則預設分數）',p:'例如 12874'},{v:'asnscore',t:'ASN + 分數倍數',p:'例如 12874 2'}]
   };
   var MAP_HINTS = {
     address: '一行一個正規表示式；# 開頭為註解。比對郵件地址，不比對來源 IP 或主機名。',
     host: '一行一個正規表示式；# 開頭為註解。比對主機名稱字串，不比對郵件地址。',
     ip: '一行一個 IP 位址或 CIDR 網段；# 開頭為註解。此名單不接受正規表示式。',
-    asn: '一行一個 ASN，可在後面加一個自訂分數；# 開頭為註解。此名單不接受正規表示式。'
+    asn: '一行一個 ASN；第二欄是「倍數」而非絕對分數 —— 規則預設 5 分，寫 2 代表 10 分。# 開頭為註解，此名單不接受正規表示式。'
   };
   function mapEffect(file) {
     if (file.indexOf('global_rcpt_white') === 0) return '比對收件地址，命中時可直接接受，會影響後續評分結果。';
@@ -123,7 +123,7 @@
     if (file.indexOf('hostname') >= 0) return '比對來源 IP 的反解（PTR）名稱；命中時' + (file.indexOf('white') >= 0 ? '減 2050 分。' : '加 2050 分。') + '沒有反解紀錄的來源不會命中。';
     if (file === 'ip_wl.map') return '比對連線來源 IP 或網段；命中時減 2050 分，等同強制放行。請只填信任的中繼主機。';
     if (file === 'global_ip_blacklist.map') return '比對連線來源 IP 或網段；命中時加 2050 分，等同強制拒收。';
-    if (file === 'bad_asn.map') return '比對來源 IP 所屬的 ASN（整個 ISP）；預設每筆加 5 分，可在每行第二欄自訂分數。範圍很廣，請謹慎。注意：此規則的「白名單則略過」條件（!MAILCOW_WHITE）在設定檢查中被丟棄，因此白名單寄件者也可能被加分。';
+    if (file === 'bad_asn.map') return '比對來源 IP 所屬的 ASN（整個 ISP）；規則預設每筆 5 分，第二欄是倍數（寫 2 即 10 分）。整個 ISP 範圍很廣，請謹慎。白名單寄件者會略過此規則（已實測）。';
     if (file.indexOf('global_') === 0) return '比對' + (file.indexOf('mime') >= 0 ? '郵件 From 地址' : 'SMTP 信封寄件地址') + '；命中時' + (file.indexOf('white') >= 0 ? '減 2050 分。' : '加 2050 分。') + '其他規則仍可能改變最終動作。';
     return '此為 Mailcow 原有內容／來源名單，實際加減分取決於相應評分項目。';
   }
@@ -400,7 +400,7 @@
       }
       var parts=raw.replace(/^AS/i,'').split(/\s+/).filter(Boolean);
       if(kind==='asnscore'){
-        if(parts.length!==2||!/^\d+$/.test(parts[0])||!/^-?\d+(\.\d+)?$/.test(parts[1]))throw '請輸入「ASN 分數」，例如 12874 5。';
+        if(parts.length!==2||!/^\d+$/.test(parts[0])||!/^-?\d+(\.\d+)?$/.test(parts[1]))throw '請輸入「ASN 倍數」，例如 12874 2。';
         return parts[0]+' '+parts[1];
       }
       if(parts.length!==1||!/^\d+$/.test(parts[0]))throw '請只輸入 ASN 數字，例如 12874。';
