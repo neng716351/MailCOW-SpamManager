@@ -165,6 +165,30 @@ php -l files/data/web/inc/impersonation.inc.php
 
 部署後仍需在測試 Mailcow 環境驗證管理員登入、CSRF、讀取及寫入行為。
 
+## 版本紀錄
+
+版號採語意化版本（SemVer）。目前版本見 `VERSION`。
+
+### v1.1.0
+
+- 新增主機層名單：來源 IP／網段、寄件主機 HELO、反解（PTR）名稱，並把原生既有的
+  `ip_wl.map` 與 `bad_asn.map` 納入頁面管理。需套用 `patches/multimap.conf.patch`
+  與 `patches/vars.inc.php.patch`。
+- 名單依種類驗證：IP／CIDR、ASN、正規表示式各用對應規則，不再一律當成正規表示式。
+- 名單條件助手支援精確地址、整個網域、網域含子網域、寄件者帳號、精確主機名、
+  主機名尾碼、IP、CIDR 與 ASN，自動轉義並產生條目。
+- 留存清單可依動作篩選（拒收／加標記／全部）。放寬留存 selector 後加標記的郵件也會留存，
+  但原本在此頁完全看不到。加標記項目不提供放行按鈕。
+
+從 v1.0.0 升級：複製 `files/` 的變更檔案、套用兩個新補丁、複製
+`files/data/conf/rspamd/custom/` 的 5 個 map 範本，然後 `rspamadm configtest`
+並重啟 `rspamd-mailcow` 與 `php-fpm-mailcow`。資料庫與既有名單內容不需變更。
+
+### v1.0.0
+
+首次發佈：Rspamd 門檻與評分管理、全域地址名單、信箱／網域政策與專屬門檻、
+防冒名規則、變更紀錄、郵件留存與放行（含外寄攔截）、更新後的自訂設定檢查。
+
 ## 授權
 
 本擴充功能依 GNU GPL-3.0 授權發佈，詳見 [LICENSE](./LICENSE)。它與 Mailcow 整合，並遵循 Mailcow 專案的 GPL 授權條款。
