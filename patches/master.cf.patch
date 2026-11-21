@@ -1,0 +1,16 @@
+diff --git a/data/conf/postfix/master.cf b/data/conf/postfix/master.cf
+index fb49f2df2..7cfbd6c43 100644
+--- a/data/conf/postfix/master.cf
++++ b/data/conf/postfix/master.cf
+@@ -114,7 +114,10 @@ smtp_sender_cleanup unix n - y - 0 cleanup
+   -o header_checks=$smtp_header_checks
+ 
+ # start whitelist_fwd
+-127.0.0.1:10027 inet n n n - 0 spawn user=nobody argv=/usr/local/bin/whitelist_forwardinghosts.sh
++# Persistent TCP map sessions: allow 30 days; individual HTTP requests are bounded by the local hook.
++127.0.0.1:10027 inet n n n - 0 spawn
++  -o command_time_limit=30d
++  user=nobody argv=/usr/local/bin/whitelist_forwardinghosts.sh
+ # end whitelist_fwd
+ 
+ # start watchdog-specific

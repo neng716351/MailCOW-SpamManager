@@ -1,0 +1,15 @@
+diff --git a/data/web/templates/qhandler.twig b/data/web/templates/qhandler.twig
+index b8b872559..b930bbeff 100644
+--- a/data/web/templates/qhandler.twig
++++ b/data/web/templates/qhandler.twig
+@@ -58,6 +58,10 @@
+           <p id="qid_detail_fuzzy"></p>
+         </div>
+         <div id="qactions">
++          {# Local addition: let the recipient read the body before confirming #}
++          <div class="mb-3">
++            <a class="btn btn-outline-primary" href="/qpreview.php?hash={{ hash }}" rel="noreferrer">查看郵件內容</a>
++          </div>
+           <form method="post" autofill="off">
+             <div>
+               {% if action == 'release' %}

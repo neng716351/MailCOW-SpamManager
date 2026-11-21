@@ -1,0 +1,79 @@
+diff --git a/data/conf/rspamd/dynmaps/settings.php b/data/conf/rspamd/dynmaps/settings.php
+index 1b0e6b6e4..cfaae64ee 100644
+--- a/data/conf/rspamd/dynmaps/settings.php
++++ b/data/conf/rspamd/dynmaps/settings.php
+@@ -36,6 +36,14 @@ $db_update_time = $stmt->fetch(PDO::FETCH_ASSOC)['db_update_time'];
+ if (empty($db_update_time)) {
+   $db_update_time = 1572048000;
+ }
++// Local addition 2026-11-13: per-alias thresholds live in alias-spamlevels.json, not in
++// a database table, so editing that file would not move the timestamp above -- rspamd
++// would keep serving its cached copy of this map indefinitely and the change would
++// never take effect. Fold the file's mtime into the freshness check.
++$alias_levels_mtime = @filemtime(__DIR__ . '/alias-spamlevels.json');
++if ($alias_levels_mtime) {
++  $db_update_time = max((int)$db_update_time, (int)$alias_levels_mtime);
++}
+ if (isset($_SERVER['HTTP_IF_MODIFIED_SINCE']) && (strtotime($_SERVER['HTTP_IF_MODIFIED_SINCE']) == $db_update_time)) {
+   header('Last-Modified: '.gmdate('D, d M Y H:i:s', $db_update_time).' GMT', true, 304);
+   exit;
+@@ -170,6 +178,59 @@ settings {
+ // Start custom scores for users
+ */
+ 
++// Local addition 2026-11-13: per-ALIAS spam thresholds.
++//
++// ucl_rcpts($object, 'mailbox') expands a mailbox into its aliases and never emits the
++// object itself, so putting an alias address into `filterconf` yields a settings block
++// with no rcpt match -- i.e. one that applies to ALL mail. Aliases therefore get their
++// own blocks here, with an explicit rcpt regexp. Config lives in alias-spamlevels.json
++// so adding another alias needs no code change.
++$alias_levels_file = __DIR__ . '/alias-spamlevels.json';
++if (is_readable($alias_levels_file)) {
++  $alias_levels = json_decode((string)file_get_contents($alias_levels_file), true);
++  if (is_array($alias_levels)) {
++    $alias_index = 0;
++    foreach ($alias_levels as $alias_addr => $levels) {
++      if (!is_string($alias_addr) || $alias_addr === '' || $alias_addr[0] === '_') continue;
++      if (!is_array($levels)) continue;
++      if (!filter_var($alias_addr, FILTER_VALIDATE_EMAIL)) continue;
++      $parsed = parse_email($alias_addr);
++      if (empty($parsed['local']) || empty($parsed['domain'])) continue;
++      $actions = array();
++      foreach (array('reject' => 'reject', 'greylist' => 'greylist', 'add_header' => '"add header"') as $key => $ucl_key) {
++        if (isset($levels[$key]) && is_numeric($levels[$key])) $actions[$ucl_key] = (float)$levels[$key];
++      }
++      if (!$actions) continue;
++      $alias_index++;
++      // Emit the same two rcpt forms the blocks above use: a plus-addressing regexp and
++      // the bare address. Mirroring mailcow's own style matters -- '\+' inside a UCL
++      // double-quoted string does not survive as a regexp quantifier escape, so the
++      // plus form must be written as '[+]'. NOTE: this file's parse_email() returns
++      // 'domain' WITH its leading '@'.
++      $local_re = str_replace('/', '\\/', $parsed['local']);
++      $domain_re = str_replace('/', '\\/', $parsed['domain']);
++?>
++  alias_score_<?=$alias_index;?> {
++    priority = 4;
++    rcpt = "/^<?=$local_re;?>[+].*<?=$domain_re;?>$/i";
++    rcpt = "<?=str_replace('/', '\\/', $alias_addr);?>";
++    apply "default" {
++      ALIAS_SPAMLEVEL = 0.0;
++      actions {
++<?php foreach ($actions as $ucl_key => $value) { ?>
++        <?=$ucl_key;?> = <?=rtrim(rtrim(number_format($value, 2, '.', ''), '0'), '.');?>;
++<?php } ?>
++      }
++    }
++    symbols [
++      "ALIAS_SPAMLEVEL"
++    ]
++  }
++<?php
++    }
++  }
++}
++
+ $stmt = $pdo->query("SELECT DISTINCT `object` FROM `filterconf` WHERE `option` = 'highspamlevel' OR `option` = 'lowspamlevel'");
+ $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+ 

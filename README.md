@@ -17,6 +17,14 @@ Mailcow 管理介面的 SpamManager 擴充功能，提供繁體中文的垃圾�
 - 留存往外寄但被拒收的郵件（誤判常見於此），由管理員決定放行給外部收件人或刪除。
 - 兩種攔截都可設定通知收件人；命中病毒的外寄郵件放行時需額外確認。
 - 在總覽頁即時檢查本機自訂設定是否被 Mailcow 更新覆蓋。
+- **全部外部來信留存**（可設定天數），被延遲、正常投遞的信也能事後查看內文，方便追查釣魚信。
+- **郵件檢視保留 HTML 原貌**：白名單重建 HTML、放進無腳本沙箱；連結一律失效並標示真實網址，外部圖片預設封鎖。
+- **連結網域黑名單**：信件內任何連結指向名單上的網域就拒收。
+- **群組別名專屬門檻**：讓常被鎖定的公開別名（如 service@）比全域門檻更早標記。
+- **維護選單**：系統更新（含步驟進度與完整紀錄）、設定驗證、備份與還原、登入地區，各自獨立。
+- **網頁一鍵更新**：快照自訂設定 → 官方 `update.sh` → 重新套用 → 驗證，需另一組更新密碼。
+- **NAS 加密備份與還原**、**主機系統更新**，都由主機端 root 代理程式執行，網頁只送出請求。
+- **登入地區限制**：只有允許的國家可以連登入用的埠（POP3／IMAP／SMTP 寄信／Sieve／HTTPS），25 埠收信不受影響；出差可臨時開放，到期自動關閉。
 
 ## 相容性與注意事項
 
@@ -73,6 +81,28 @@ Mailcow 管理介面的 SpamManager 擴充功能，提供繁體中文的垃圾�
 
 7. 確認檔案擁有者與權限沿用 Mailcow 原設定，然後重新載入 Twig 快取並重啟 `php-fpm-mailcow`，讓 OPcache 載入新程式。
 8. 以 Mailcow 管理員登入並開啟 `/admin/SpamManager`。先讀取設定、檢查記錄，再進行任何寫入。
+
+9. 若要使用 v2 的功能，依需要安裝（各項互相獨立）。完整說明見 [`docs/OPERATIONS.md`](docs/OPERATIONS.md)：
+
+   | 功能 | 要裝的東西 |
+   |---|---|
+   | 全部來信留存 | `patches/metadata_exporter.conf.patch`、`patches/pipe.php.patch`、`helper-scripts/purge-aged-quarantine.sh`（主機 crontab 每天執行） |
+   | HTML 原貌檢視 | `files/data/web/qpreview.php`、`patches/qhandler.twig.patch` |
+   | 連結網域黑名單 | `patches/multimap.conf.patch`、`patches/vars.inc.php.patch`、`custom/global_url_blacklist.map` |
+   | 群組別名門檻 | `patches/settings.php.patch`，再把 `dynmaps/alias-spamlevels.json.example` 複製成 `alias-spamlevels.json` 並改成你的別名 |
+   | 網頁一鍵更新 | `sudo helper-scripts/setup-updater-agent.sh`（設定更新密碼） |
+   | 主機系統更新 | `sudo helper-scripts/setup-host-update.sh` |
+   | NAS 備份／還原 | `sudo helper-scripts/setup-nas-webconfig.sh` 或 `setup-nas-backup.sh` |
+   | 登入地區限制 | `sudo helper-scripts/setup-geo-allowlist.sh`（預設只開放台灣；可用 `GEO_COUNTRIES="TW JP"` 指定，`GEO_ENABLE=0` 先不啟用） |
+
+   `helper-scripts/` 的檔案放到 Mailcow 的 `helper-scripts/`。主機端代理程式都要先有更新密碼，所以 **`setup-updater-agent.sh` 要第一個執行**。
+
+10. **改完 PHP 一定要重啟 php-fpm**：Mailcow 的 opcache 預設不檢查檔案時間，不重啟就會繼續跑舊程式。另外清除 JS 打包快取與 Twig 快取：
+
+    ```sh
+    docker compose restart php-fpm-mailcow
+    docker compose exec php-fpm-mailcow sh -c 'rm -f /tmp/*.js; rm -rf /web/templates/cache/*'
+    ```
 
 ## 郵件留存與放行
 
@@ -169,6 +199,20 @@ php -l files/data/web/inc/impersonation.inc.php
 
 版號採語意化版本（SemVer）。目前版本見 `VERSION`。
 
+### v2.0.0
+
+- 全部外部來信留存，被動留存的副本不會進每小時摘要；dovecot 容器沒有 cron，改由主機 crontab 清除過期留存。
+- 黑名單命中時 rspamd 會提前結束掃描，`RCPT_MAILCOW_DOMAIN` 來不及計算；拒收的信現在也一律留存。
+- 郵件檢視改為 HTML 原貌（白名單清洗＋沙箱＋CSP），連結失效並標示真實網址。
+- 新增連結網域黑名單 `GLOBAL_URL_BL`。
+- 新增群組別名專屬門檻（原生的個別門檻設在別名上，會變成套用到所有信件的規則）。
+- 維護功能拆成獨立選單；更新頁顯示步驟、問題清單、版本變化與完整紀錄。
+- 新增網頁一鍵更新、主機系統更新、NAS 加密備份與還原、登入地區限制（nftables，依 RIR 國家資料）。
+- 重新套用工具：依語句結構比對（不怕官方新增欄位）、保留檔案原本的換行格式、更新前快照涵蓋全部自訂檔案。
+- 一鍵更新：自動處理新版 `update.sh` 先更新 `_modules` 再要求重跑的情況。
+
+從 v1.x 升級：見 `docs/OPERATIONS.md` 的「從 v1 升級」。
+
 ### v1.1.1
 
 - 修正 ASN 名單的欄位說明：第二欄是**分數倍數**而非絕對分數（規則預設 5 分，寫 `2` 即 10 分）。
@@ -198,4 +242,10 @@ php -l files/data/web/inc/impersonation.inc.php
 
 ## 授權
 
-本擴充功能依 GNU GPL-3.0 授權發佈，詳見 [LICENSE](./LICENSE)。它與 Mailcow 整合，並遵循 Mailcow 專案的 GPL 授權條款。
+本擴充功能依 GNU GPL-3.0 授權發佈，詳見 [LICENSE](./LICENSE)，與 [mailcow: dockerized](https://github.com/mailcow/mailcow-dockerized) 使用相同的授權。
+
+- `patches/` 是對 mailcow: dockerized 原始檔的修改，內含原始碼片段（diff 的上下文行）。這些片段的著作權屬於 mailcow: dockerized 的原作者與貢獻者，依 GPL-3.0 散佈；修改的部分在補丁中逐行可見，並以 `Local change`／`Local addition` 註解說明原因。
+- `files/` 與 `helper-scripts/` 是本專案新增的檔案，同樣以 GPL-3.0 授權。其中 `pipe_outbound.php`、`pipe_inbound_notify.php`、`qpreview.php` 改寫自 mailcow: dockerized 的對應程式（`pipe.php`、`qhandler`），保留原作者的著作權。
+- 本專案不包含 mailcow 的完整原始碼。使用前請先取得官方版本，並遵守其授權。
+
+「mailcow」是其權利人的商標。本專案名稱中的 mailcow 只用來說明相容的系統；本專案**並非** mailcow 官方專案，也未獲其背書或支援。問題請在本 repo 回報，不要向 mailcow 官方回報。

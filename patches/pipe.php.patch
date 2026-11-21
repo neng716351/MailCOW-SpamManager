@@ -1,0 +1,30 @@
+diff --git a/data/conf/rspamd/meta_exporter/pipe.php b/data/conf/rspamd/meta_exporter/pipe.php
+index 439238cc9..dc82867e1 100644
+--- a/data/conf/rspamd/meta_exporter/pipe.php
++++ b/data/conf/rspamd/meta_exporter/pipe.php
+@@ -217,8 +217,15 @@ foreach ($rcpt_final_mailboxes as $rcpt_final) {
+   error_log("QUARANTINE: quarantine pipe: processing quarantine message for rcpt " . $rcpt_final . PHP_EOL);
+   try {
+     // qhash is the secret of the release/delete links in notifications, so it must not be derivable
+-    $stmt = $pdo->prepare("INSERT INTO `quarantine` (`qid`, `subject`, `score`, `sender`, `rcpt`, `symbols`, `user`, `ip`, `msg`, `action`, `fuzzy_hashes`, `qhash`)
+-      VALUES (:qid, :subject, :score, :sender, :rcpt, :symbols, :user, :ip, :msg, :action, :fuzzy_hashes, :qhash)");
++    // Local change 2026-11-13: the QUARANTINE selector now keeps a copy of every inbound
++    // message, so mail that was NOT acted on must never reach the per-mailbox digest --
++    // a mailbox whose quarantine_category is 'all' would otherwise be mailed an hourly
++    // list of its own normal mail. Pre-mark those copies as notified; they stay fully
++    // visible to the admin UI.
++    $passive_actions = array('no action', 'greylist', 'soft reject');
++    $pre_notified = in_array($action, $passive_actions, true) ? 1 : 0;
++    $stmt = $pdo->prepare("INSERT INTO `quarantine` (`qid`, `subject`, `score`, `sender`, `rcpt`, `symbols`, `user`, `ip`, `msg`, `action`, `fuzzy_hashes`, `qhash`, `notified`)
++      VALUES (:qid, :subject, :score, :sender, :rcpt, :symbols, :user, :ip, :msg, :action, :fuzzy_hashes, :qhash, :notified)");
+     $stmt->execute(array(
+       ':qid' => $qid,
+       ':subject' => $subject,
+@@ -230,6 +237,7 @@ foreach ($rcpt_final_mailboxes as $rcpt_final) {
+       ':ip' => $ip,
+       ':msg' => $raw_data,
+       ':action' => $action,
++      ':notified' => $pre_notified,
+       ':fuzzy_hashes' => $fuzzy,
+       ':qhash' => bin2hex(random_bytes(32))
+     ));

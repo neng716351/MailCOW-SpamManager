@@ -1,8 +1,8 @@
 diff --git a/data/web/inc/init_db.inc.php b/data/web/inc/init_db.inc.php
-index f6b0cd79..9fa6bb75 100644
+index ff95a0b0a..95a60c25d 100644
 --- a/data/web/inc/init_db.inc.php
 +++ b/data/web/inc/init_db.inc.php
-@@ -360,6 +360,37 @@ function init_db_schema()
+@@ -338,6 +338,37 @@ function init_db_schema()
          ),
          "attr" => "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ROW_FORMAT=DYNAMIC"
        ),

@@ -1,4 +1,9 @@
 <?php
+// Components the WEB UI may restore. Mail data (vmail/crypt) is deliberately absent:
+// it can overwrite every mailbox, so it stays a host-only operation.
+const SM_RESTORE_WEB_COMPONENTS = ['mysql', 'redis', 'rspamd', 'postfix'];
+// SMB dialects we let the page choose from; the host script enforces the same list.
+const SM_NAS_SMB_VERSIONS = ['3.1.1', '3.0', '2.1', '2.0', '1.0'];
 /** Local admin facade over native Mailcow policies and the Rspamd controller. */
 function sm_controller(string $path, ?array $body = null): array {
   $allowed = ['actions','symbols','stat','history','auth','saveactions','savesymbols'];
@@ -31,6 +36,7 @@ const SM_MAP_KIND_HINT = [
   'regex' => '不是合法的正規表示式',
   'ip' => '不是合法的 IP 位址或 CIDR 網段',
   'asn' => '不是合法的 ASN 條目（格式：ASN，或 ASN 加一個分數倍數，可再加 # 說明）',
+  'url' => '不是合法的網域（請填 example.com 這種純網域，不要加 http:// 或路徑）',
 ];
 function sm_valid_ip_entry(string $line): bool {
   if (!str_contains($line, '/')) return (bool)filter_var($line, FILTER_VALIDATE_IP);
@@ -46,14 +52,24 @@ function sm_valid_asn_entry(string $line): bool {
   if (!ctype_digit($asn) || (int)$asn < 1 || (int)$asn > 4294967295) return false;
   return count($parts) === 1 || is_numeric($parts[1]);
 }
+function sm_valid_domain_entry(string $line): bool {
+  // multimap's url/tld filter hands us a registrable domain, so the map holds bare
+  // domains -- not regexes, not URLs. Reject anything with a scheme, path or wildcard
+  // so a pasted link cannot silently become a rule that never matches.
+  $line = trim(preg_replace('/\s*#.*$/u', '', $line));
+  if ($line === '' || strlen($line) > 253) return false;
+  if (preg_match('~[/:\s*?]~u', $line)) return false;
+  return (bool)preg_match('/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i', $line);
+}
 function sm_valid_map_entry(string $kind, string $line): bool {
   if ($kind === 'ip') return sm_valid_ip_entry($line);
   if ($kind === 'asn') return sm_valid_asn_entry($line);
+  if ($kind === 'url') return sm_valid_domain_entry($line);
   return is_valid_regex($line);
 }
 function sm_maps(): array {
   global $RSPAMD_MAPS;
-  $labels=['global_mime_from_blacklist.map'=>'From 寄件人黑名單','global_mime_from_whitelist.map'=>'From 寄件人白名單','global_smtp_from_blacklist.map'=>'SMTP 寄件人黑名單','global_smtp_from_whitelist.map'=>'SMTP 寄件人白名單','global_rcpt_blacklist.map'=>'收件人黑名單','global_rcpt_whitelist.map'=>'收件人白名單','global_helo_whitelist.map'=>'寄件主機 HELO 白名單','global_helo_blacklist.map'=>'寄件主機 HELO 黑名單','global_hostname_whitelist.map'=>'寄件主機反解名稱白名單','global_hostname_blacklist.map'=>'寄件主機反解名稱黑名單','ip_wl.map'=>'來源 IP／網段白名單','global_ip_blacklist.map'=>'來源 IP／網段黑名單','bad_asn.map'=>'來源 ASN 黑名單'];
+  $labels=['global_mime_from_blacklist.map'=>'From 寄件人黑名單','global_mime_from_whitelist.map'=>'From 寄件人白名單','global_smtp_from_blacklist.map'=>'SMTP 寄件人黑名單','global_smtp_from_whitelist.map'=>'SMTP 寄件人白名單','global_rcpt_blacklist.map'=>'收件人黑名單','global_rcpt_whitelist.map'=>'收件人白名單','global_helo_whitelist.map'=>'寄件主機 HELO 白名單','global_helo_blacklist.map'=>'寄件主機 HELO 黑名單','global_hostname_whitelist.map'=>'寄件主機反解名稱白名單','global_hostname_blacklist.map'=>'寄件主機反解名稱黑名單','ip_wl.map'=>'來源 IP／網段白名單','global_ip_blacklist.map'=>'來源 IP／網段黑名單','bad_asn.map'=>'來源 ASN 黑名單','global_url_blacklist.map'=>'郵件內連結網域黑名單'];
   $out=[];
   foreach ($RSPAMD_MAPS as $kind=>$files) {
     if (!is_array($files) || !isset(SM_MAP_KIND_HINT[$kind])) continue;
@@ -66,7 +82,8 @@ function sm_maps(): array {
     }
   }
   return $out;
-}function sm_policies(): array {
+}
+function sm_policies(): array {
   global $pdo;
   $rows=$pdo->query("SELECT prefid,object,`option`,value FROM filterconf WHERE `option` IN ('whitelist_from','blacklist_from','lowspamlevel','highspamlevel') ORDER BY object,`option`,prefid")->fetchAll(PDO::FETCH_ASSOC);
   foreach($rows as &$row)$row['hash']=hash('sha256',json_encode([$row['object'],$row['option'],$row['value']]));unset($row);return $rows;
@@ -114,7 +131,10 @@ function sm_rejected(): array {
     ];
   }
   usort($out, fn($a, $b) => ($b['created'] ?? 0) <=> ($a['created'] ?? 0));
-  return $out;
+  // Since 2026-11-13 the selector keeps every inbound message, so this list grows with
+  // mail volume rather than with spam volume. Cap what the page loads; older copies are
+  // purged by Q_MAX_AGE anyway, and the admin filters/searches within the newest slice.
+  return array_slice($out, 0, 2000);
 }
 function sm_outbound(): array {
   // Outbound (authenticated local sender) mail that was rejected and held for review.
@@ -203,6 +223,86 @@ function sm_customizations(): array {
   }
   return $out;
 }
+// The five numbered stages mailcow-oneclick-update.sh prints as "==> 步驟 N/5：...".
+const SM_UPDATE_STEPS = [
+  1 => '備份自訂設定', 2 => '更新前檢查', 3 => '官方更新（update.sh）',
+  4 => '重新套用自訂設定', 5 => '驗證',
+];
+/**
+ * Turn the raw update log into what the page needs: the whole log (minus per-layer
+ * docker pull progress, folded into one summary line per image), the step each stage
+ * reached, every problem line, and the before/after version.
+ */
+function sm_parse_update_log(string $raw): array {
+  // Colours AND cursor movement: docker pull redraws its progress with ESC[1A/ESC[2K.
+  $raw = preg_replace('/\x1b\[[0-9;?]*[A-Za-z]|\x1b[()][0-9A-Za-z]/', '', $raw);
+  $raw = preg_replace('/^\[[0-9;]*m/m', '', $raw);
+  $lines = preg_split('/\R/u', rtrim(str_replace("\r", "\n", $raw)));
+  $keep = []; $blank = 0; $layers = 0; $gitstat = 0; $okcount = 0; $in_summary = false;
+  $steps = []; foreach (SM_UPDATE_STEPS as $n => $title) $steps[$n] = ['n' => $n, 'title' => $title, 'state' => 'pending', 'detail' => ''];
+  $current = 0; $problems = []; $before = ''; $after = ''; $result = ''; $started = '';
+  $flush_layers = function () use (&$keep, &$layers, &$gitstat, &$okcount) {
+    if ($layers) { $keep[] = "    （下載容器映像：{$layers} 行逐層進度已摺疊）"; $layers = 0; }
+    if ($gitstat) { $keep[] = "    （git 檔案變更清單：{$gitstat} 個檔案，已摺疊）"; $gitstat = 0; }
+    if ($okcount) { $keep[] = "    （功能測試：{$okcount} 項檢查通過，已摺疊）"; $okcount = 0; }
+  };
+  foreach ($lines as $line) {
+    $plain = rtrim($line);
+    // docker pull progress: "<12 hex>: Pulling fs layer|Waiting|Download complete|..."
+    if (preg_match('/^\s*[0-9a-f]{12}: (Pulling fs layer|Waiting|Downloading|Verifying Checksum|Download complete|Extracting|Pull complete|Already exists)/', $plain)) { $layers++; continue; }
+    // git merge diffstat: " path/to/file | 12 +-" (or "Bin 0 -> 123 bytes")
+    if (preg_match('/^ \S.*\|\s+(\d+ ?[+-]*|Bin .*)$/', $plain)
+        || preg_match('/^ (create|delete) mode \d+ |^ rename .* \(\d+%\)$|^ mode change \d+ => \d+ /', $plain)) { $gitstat++; continue; }
+    // Test suite: individual passing assertions. Group results (... PASS / FAIL) stay.
+    if (preg_match('/^ok: /', $plain)) { $okcount++; continue; }
+    $flush_layers();
+    if ($plain === '') { if (++$blank > 1) continue; $keep[] = ''; continue; }
+    $blank = 0;
+    // A failing git command dumps its usage text; our output never indents past 4 spaces.
+    if (preg_match('/^\s{6,}\S/', $plain)) continue;
+    if (preg_match('/^\s{2,}-{1,2}[A-Za-z\[]/', $plain)) continue;
+    $keep[] = $plain;
+    if (preg_match('/^==> Mailcow 一鍵更新 — (\S+)/u', $plain, $m)) $started = $m[1];
+    if (preg_match('/^==> 步驟 (\d)\/5/u', $plain, $m)) {
+      $n = (int)$m[1];
+      for ($i = 1; $i < $n; $i++) if ($steps[$i]['state'] === 'pending' || $steps[$i]['state'] === 'running') $steps[$i]['state'] = 'done';
+      if (isset($steps[$n])) $steps[$n]['state'] = 'running';
+      $current = $n;
+    }
+    if (preg_match('/^\s*目前版本：(.+)$/u', $plain, $m)) $before = trim($m[1]);
+    if (preg_match('/^\s*更新後版本：(.+)$/u', $plain, $m)) $after = trim($m[1]);
+    if (preg_match('/^==> 完成/u', $plain)) $in_summary = true;
+    if (preg_match('/^\s*!!\s*(.+)$/u', $plain, $m)) {
+      $msg = trim($m[1]);
+      // The closing lines restate earlier problems; list them once, colour no step.
+      // "共 N 項問題" is the tally line, not a problem of its own.
+      if (!preg_match('/^共 \d+ 項問題/u', $msg) && !in_array($msg, $problems, true)) $problems[] = $msg;
+      if (!$in_summary && $current && isset($steps[$current])) {
+        $steps[$current]['state'] = 'warn';
+        if ($steps[$current]['detail'] === '') $steps[$current]['detail'] = $msg;
+      }
+    }
+    if (preg_match('/NEEDS-MANUAL|MISSING/', $plain) && $current === 4 && preg_match('/^\s{2}\S/', $plain)) {
+      $steps[4]['state'] = 'warn'; $steps[4]['detail'] = '有項目需要人工處理';
+    }
+    if (preg_match('/^\s*未發現問題/u', $plain)) $result = 'ok';
+    if (preg_match('/共 (\d+) 項問題/u', $plain)) $result = 'problems';
+  }
+  $flush_layers();
+  if ($result !== '') {
+    foreach ($steps as &$st) if ($st['state'] === 'running' || $st['state'] === 'pending') $st['state'] = $st['n'] <= max($current, 1) ? 'done' : 'skipped';
+    unset($st);
+  }
+  if ($before !== '' && $after !== '') $steps[3]['detail'] = $before === $after ? "版本未變（{$before}）" : "{$before} → {$after}";
+  // Cap what we send; the full file stays on the host for anything longer.
+  $total = count($keep);
+  return [
+    'log' => implode("\n", array_slice($keep, -1500)),
+    'log_truncated' => max(0, $total - 1500),
+    'steps' => array_values($steps), 'current_step' => $current, 'problems' => $problems,
+    'version_before' => $before, 'version_after' => $after, 'result' => $result, 'run_id' => $started,
+  ];
+}
 function sm_update_status(): array {
   // Status of the host-side update agent. The web layer only reads what the agent wrote;
   // it never runs the update itself and never sees the update passphrase hash.
@@ -219,12 +319,237 @@ function sm_update_status(): array {
     }
   }
   if (is_readable($dir . '/update.log')) {
-    $raw = (string)file_get_contents($dir . '/update.log');
-    $lines = preg_split('/\R/u', rtrim($raw));
-    $out['log'] = implode("\n", array_slice($lines, -40));
+    $out = array_merge($out, sm_parse_update_log((string)file_get_contents($dir . '/update.log')));
   }
   return $out;
 }
+function sm_backup_notify(): string {
+  // Who gets told when a backup fails. Empty = no mail is sent (the backup still runs).
+  global $redis;
+  try { $v = $redis->Get('BACKUP_NOTIFY'); } catch (Throwable $e) { $v = false; }
+  return ($v === false || $v === null) ? '' : (string)$v;
+}
+
+function sm_nas_backup_status(): array {
+  // Status of the host-side NAS backup. The web layer only reads what the agent and the
+  // backup script wrote; it never mounts the share and never sees the SMB password.
+  $dir = '/updater';
+  $out = [
+    'available'  => is_dir($dir) && is_writable($dir),
+    'configured' => false,
+    'state'      => 'idle',
+    'message'    => '',
+    'updated'    => null,
+    'target'     => '',
+    'retention'  => null,
+    'schedule'   => '',
+    'encrypted'  => null,
+    'last_success' => null,
+    'last_name'  => '',
+    'last_size'  => '',
+    'backups'    => [],
+    'log'        => '',
+    'pending'    => false,
+    'notify'     => sm_backup_notify(),
+  ];
+  if (!$out['available']) {
+    $out['message'] = '尚未啟用網頁備份（請在主機執行 setup-nas-backup.sh）。';
+    return $out;
+  }
+  $out['pending'] = is_file($dir . '/backup-request.json');
+
+  // Target description, written by the setup script. Its presence is what tells us the
+  // NAS has been configured at all, because /etc is not readable from here.
+  if (is_readable($dir . '/backup-target.json')) {
+    $t = json_decode((string)file_get_contents($dir . '/backup-target.json'), true);
+    if (is_array($t)) {
+      $out['configured'] = true;
+      $out['target']     = (string)($t['target'] ?? '');
+      $out['retention']  = isset($t['retention']) ? (int)$t['retention'] : null;
+      $out['schedule']   = (string)($t['schedule'] ?? '');
+      if (isset($t['encrypted'])) $out['encrypted'] = (bool)$t['encrypted'];
+    }
+  }
+  if (!$out['configured']) {
+    $out['message'] = is_file($dir . '/nas-webconfig.json')
+      ? '尚未設定 NAS。請先在上方「NAS 連線設定」填入連線資訊並測試成功。'
+      : '尚未設定 NAS。請在主機執行 helper-scripts/setup-nas-backup.sh。';
+  }
+
+  if (is_readable($dir . '/backup-status.json')) {
+    $st = json_decode((string)file_get_contents($dir . '/backup-status.json'), true);
+    if (is_array($st)) {
+      $out['state']   = (string)($st['state'] ?? 'idle');
+      $out['message'] = (string)($st['message'] ?? $out['message']);
+      $out['updated'] = isset($st['updated']) ? (int)$st['updated'] : null;
+      foreach (['target', 'last_name', 'last_size'] as $k) {
+        if (!empty($st[$k])) $out[$k] = (string)$st[$k];
+      }
+      if (isset($st['retention'])) $out['retention'] = (int)$st['retention'];
+      if (isset($st['encrypted'])) $out['encrypted'] = (bool)$st['encrypted'];
+      if (isset($st['last_success'])) $out['last_success'] = (int)$st['last_success'];
+      if (isset($st['backups']) && is_array($st['backups'])) {
+        $out['backups'] = array_slice(array_values(array_filter($st['backups'], 'is_array')), 0, 20);
+      }
+    }
+  }
+
+  if (is_readable($dir . '/backup.log')) {
+    $raw = preg_replace('/\x1b?\[[0-9;]*m/', '', (string)file_get_contents($dir . '/backup.log'));
+    $lines = preg_split('/\R/u', rtrim((string)$raw));
+    $out['log'] = implode("\n", array_slice($lines, -60));
+  }
+  return $out;
+}
+
+function sm_nas_restore_status(): array {
+  // Status of the host-side restore. Only settings-class components can be restored from
+  // here; vmail and crypt are refused by both the agent and the restore script.
+  $dir = '/updater';
+  $out = [
+    'available'  => is_dir($dir) && is_writable($dir),
+    'state'      => 'idle',
+    'message'    => '',
+    'updated'    => null,
+    'backup'     => '',
+    'components' => '',
+    'snapshot'   => '',
+    'log'        => '',
+    'pending'    => false,
+    'allowed'    => SM_RESTORE_WEB_COMPONENTS,
+  ];
+  if (!$out['available']) { $out['message'] = '尚未啟用網頁還原。'; return $out; }
+  $out['pending'] = is_file($dir . '/restore-request.json');
+  if (is_readable($dir . '/restore-status.json')) {
+    $st = json_decode((string)file_get_contents($dir . '/restore-status.json'), true);
+    if (is_array($st)) {
+      foreach (['state','message','backup','components','snapshot'] as $k) {
+        if (isset($st[$k])) $out[$k] = (string)$st[$k];
+      }
+      if (isset($st['updated'])) $out['updated'] = (int)$st['updated'];
+    }
+  }
+  if (is_readable($dir . '/restore.log')) {
+    $raw = preg_replace('/\x1b?\[[0-9;]*m/', '', (string)file_get_contents($dir . '/restore.log'));
+    $out['log'] = implode("\n", array_slice(preg_split('/\R/u', rtrim((string)$raw)), -60));
+  }
+  return $out;
+}
+
+function sm_geo_status(): array {
+  // Login-region allowlist. Written by the root agent (mailcow-geo-agent.py); the web
+  // layer only reads it and drops change requests -- it never touches the firewall.
+  $dir = '/updater';
+  $out = ['available' => is_dir($dir) && is_writable($dir), 'configured' => false, 'state' => 'idle',
+          'message' => '', 'pending' => is_file($dir . '/geo-request.json')];
+  if (!$out['available']) { $out['message'] = '尚未啟用網頁主機功能。'; return $out; }
+  if (!is_readable($dir . '/geo-status.json')) {
+    $out['message'] = '尚未安裝登入地區限制，請在主機執行 sudo ./helper-scripts/setup-geo-allowlist.sh';
+    return $out;
+  }
+  $st = json_decode((string)file_get_contents($dir . '/geo-status.json'), true);
+  if (!is_array($st)) { $out['message'] = '狀態檔無法讀取。'; return $out; }
+  $out['configured'] = true;
+  foreach (['state','message','updated','policy','ports','open_ports','available_countries','active',
+            'data_fetched','effective','set_v4','set_v6','counters','blocked_recent','blocked_by_country','applied'] as $k) {
+    if (array_key_exists($k, $st)) $out[$k] = $st[$k];
+  }
+  return $out;
+}
+function sm_host_update_status(): array {
+  // Status of host OS maintenance, written by the host-side script and agent. The web
+  // layer only reads it; "check" is not web-triggerable (a daily timer does it) so no
+  // root apt operation is reachable from here.
+  $dir = '/updater';
+  $out = [
+    'available'  => is_dir($dir) && is_writable($dir),
+    'configured' => false,
+    'state'      => 'idle',
+    'message'    => '',
+    'updated'    => null,
+    'checked'    => null,
+    'count'      => null,
+    'security'   => null,
+    'deferred'   => [],
+    'reboot_required' => false,
+    'reboot_pkgs'     => '',
+    'kernel_running'  => '',
+    'kernel_installed'=> '',
+    'log'        => '',
+    'pending'    => false,
+  ];
+  if (!$out['available']) { $out['message'] = '尚未啟用網頁主機更新。'; return $out; }
+  $out['pending'] = is_file($dir . '/host-request.json');
+
+  if (is_readable($dir . '/host-status.json')) {
+    $st = json_decode((string)file_get_contents($dir . '/host-status.json'), true);
+    if (is_array($st)) {
+      $out['configured'] = true;
+      $out['state']   = (string)($st['state'] ?? 'idle');
+      $out['message'] = (string)($st['message'] ?? '');
+      foreach (['updated','checked'] as $k) {
+        if (isset($st[$k])) $out[$k] = (int)$st[$k];
+      }
+      if (isset($st['available'])) $out['count']    = (int)$st['available'];
+      if (isset($st['security']))  $out['security'] = (int)$st['security'];
+      if (isset($st['deferred']) && is_array($st['deferred'])) {
+        $out['deferred'] = array_values(array_filter(array_map('strval', $st['deferred'])));
+      }
+      $out['reboot_required']  = !empty($st['reboot_required']);
+      $out['reboot_pkgs']      = (string)($st['reboot_pkgs'] ?? '');
+      $out['kernel_running']   = (string)($st['kernel_running'] ?? '');
+      $out['kernel_installed'] = (string)($st['kernel_installed'] ?? '');
+    }
+  }
+  if (!$out['configured']) {
+    $out['message'] = '尚未設定主機更新。請在主機執行 helper-scripts/setup-host-update.sh。';
+  }
+  if (is_readable($dir . '/host-update.log')) {
+    $raw = preg_replace('/\x1b?\[[0-9;]*m/', '', (string)file_get_contents($dir . '/host-update.log'));
+    $out['log'] = implode("\n", array_slice(preg_split('/\R/u', rtrim((string)$raw)), -80));
+  }
+  return $out;
+}
+
+function sm_nas_setup_status(): array {
+  // Status of the NAS connection setup performed by the root agent. The page may collect
+  // the connection here, but the SMB password is never stored or read back by this layer.
+  $dir = '/updater';
+  $out = [
+    'available'   => false,
+    'state'       => 'idle',
+    'message'     => '',
+    'updated'     => null,
+    'key_created' => false,
+    'log'         => '',
+    'pending'     => false,
+    'versions'    => SM_NAS_SMB_VERSIONS,
+  ];
+  if (!is_dir($dir) || !is_writable($dir)) {
+    $out['message'] = '尚未啟用網頁設定。';
+    return $out;
+  }
+  $out['available'] = is_file($dir . '/nas-webconfig.json');
+  if (!$out['available']) {
+    $out['message'] = '尚未啟用網頁設定 NAS。請在主機執行一次 helper-scripts/setup-nas-webconfig.sh。';
+  }
+  $out['pending'] = is_file($dir . '/nas-setup-request.json');
+  if (is_readable($dir . '/nas-setup-status.json')) {
+    $st = json_decode((string)file_get_contents($dir . '/nas-setup-status.json'), true);
+    if (is_array($st)) {
+      $out['state']       = (string)($st['state'] ?? 'idle');
+      $out['message']     = (string)($st['message'] ?? $out['message']);
+      $out['updated']     = isset($st['updated']) ? (int)$st['updated'] : null;
+      $out['key_created'] = !empty($st['key_created']);
+    }
+  }
+  if (is_readable($dir . '/nas-setup.log')) {
+    $raw = preg_replace('/\x1b?\[[0-9;]*m/', '', (string)file_get_contents($dir . '/nas-setup.log'));
+    $out['log'] = implode("\n", array_slice(preg_split('/\R/u', rtrim((string)$raw)), -40));
+  }
+  return $out;
+}
+
 function sm_audit_entries(): array {
   global $redis;
   $out=[];
@@ -250,6 +575,34 @@ function sm_native(callable $fn): void {
   $messages=array_slice($_SESSION['return'] ?? [],$offset);
   foreach($messages as $v)if(in_array($v['type'],['danger','warning'],true))throw new InvalidArgumentException('原生設定未儲存：'.(is_array($v['msg'])?implode(' ',array_filter($v['msg'],'is_scalar')):$v['msg']));
   if($result===false)throw new InvalidArgumentException('沒有權限或設定未通過驗證。');
+}
+function sm_sender_domain(string $addr): string {
+  $at=strrpos($addr,'@');
+  $d=$at===false?$addr:substr($addr,$at+1);
+  $d=rtrim(strtolower(trim($d)),'.');
+  if(!preg_match('/^(?=.{1,253}$)[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/',$d))throw new InvalidArgumentException('無法從寄件者取出有效網域：'.$addr);
+  return $d;
+}
+// Mirror of the 全域名單 tab's client-side builder, re-derived server side so the
+// quarantine tab never submits a hand-made regex: 'addr' pins the whole address,
+// 'domain' the domain only, 'subdomain' the domain and anything below it.
+function sm_sender_rule(string $cond,string $addr): string {
+  $esc=fn(string $v)=>str_replace('/','\\/',preg_quote($v,null));
+  if($cond==='addr')return '/^'.$esc(strtolower($addr)).'$/i';
+  $d=sm_sender_domain($addr);
+  if($cond==='subdomain')return '/@(?:[^@]+\\.)?'.$esc($d).'$/i';
+  if($cond==='domain')return '/@'.$esc($d).'$/i';
+  throw new InvalidArgumentException('不支援的比對條件。');
+}
+// Per-mailbox filterconf takes a glob, not a regex: native policy() turns '*' into
+// '.*', so there is no anchored way to say "this domain and anything below it" in one
+// entry -- '*example.com' would also match notexample.com. The per-mailbox scope
+// therefore offers the exact address and the exact domain only, and 'subdomain' is
+// rejected here as well as hidden in the page.
+function sm_sender_policy_value(string $cond,string $addr): string {
+  if($cond==='addr')return strtolower($addr);
+  if($cond==='domain')return '*@'.sm_sender_domain($addr);
+  throw new InvalidArgumentException('個別信箱名單只支援「精確地址」與「整個網域」；要連子網域一起擋請用全域名單。');
 }
 function sm_mutate(string $op,array $p): array {
   global $pdo;
@@ -337,6 +690,64 @@ function sm_mutate(string $op,array $p): array {
       sm_backup($op,['id'=>$id,'rcpt'=>$row['rcpt'],'sender'=>$row['sender'],'subject'=>$row['subject']],null);
       sm_native(fn()=>quarantine('edit',['action'=>'release','id'=>$id]));
       return ['message'=>'已放行並投遞至 '.$row['rcpt'].'。此副本仍保留於隔離區，可於原生隔離區刪除。'];
+    case 'quarantine_copy':
+      // 'add header' / 'rewrite subject' mail was already delivered to the mailbox's
+      // Junk folder, so there is nothing to release -- but the admin still needs a
+      // clean copy in the inbox after reviewing it. Native release reinjects through
+      // the milter-bypassing listener, so the copy arrives without the spam header
+      // and Sieve leaves it in INBOX. The Junk copy is untouched: the mailbox ends up
+      // with both, which the confirmation text says.
+      $id=$p['id'] ?? null;
+      if(!(is_int($id) || (is_string($id) && ctype_digit($id))))throw new InvalidArgumentException('請指定要處理的郵件。');
+      $id=(int)$id;
+      $s=$pdo->prepare("SELECT `rcpt`,`action`,`sender`,`subject` FROM `quarantine` WHERE `id`=:id");$s->execute([':id'=>$id]);$row=$s->fetch(PDO::FETCH_ASSOC);
+      if(!$row)throw new InvalidArgumentException('找不到該郵件，可能已刪除或過期。');
+      if(($row['action'] ?? '')==='reject')throw new InvalidArgumentException('被拒收的郵件請用「放行」。');
+      if(empty($row['rcpt']))throw new InvalidArgumentException('缺少收件人，無法投遞。');
+      sm_backup($op,['id'=>$id,'rcpt'=>$row['rcpt'],'sender'=>$row['sender'],'subject'=>$row['subject'],'action'=>$row['action']],null);
+      sm_native(fn()=>quarantine('edit',['action'=>'release','id'=>$id]));
+      return ['message'=>'已複製一份到 '.$row['rcpt'].' 的收件匣；垃圾郵件匣裡原本那封仍在。'];
+    case 'quarantine_list':
+      // Add one sender condition taken from a held message. The address and the
+      // recipient come from the quarantine row, never from the browser, so the page
+      // cannot list an arbitrary third party. Both scopes reuse the same native
+      // writers as the 全域名單 and 個別規則 tabs; the global scope does its
+      // read-modify-write here so the quarantine tab needs no map baseline.
+      $id=$p['id'] ?? null;
+      if(!(is_int($id) || (is_string($id) && ctype_digit($id))))throw new InvalidArgumentException('請指定郵件。');
+      $id=(int)$id;
+      $kind=(string)($p['kind'] ?? '');if(!in_array($kind,['wl','bl'],true))throw new InvalidArgumentException('名單類型不正確。');
+      $cond=(string)($p['cond'] ?? '');if(!in_array($cond,['addr','domain','subdomain'],true))throw new InvalidArgumentException('比對條件不正確。');
+      $scope=(string)($p['scope'] ?? '');if(!in_array($scope,['global','rcpt'],true))throw new InvalidArgumentException('名單範圍不正確。');
+      $s=$pdo->prepare("SELECT `sender`,`rcpt` FROM `quarantine` WHERE `id`=:id");$s->execute([':id'=>$id]);$row=$s->fetch(PDO::FETCH_ASSOC);
+      if(!$row)throw new InvalidArgumentException('找不到該郵件，可能已刪除或過期。');
+      $addr=strtolower(trim((string)$row['sender']));
+      if($addr==='' || !filter_var($addr,FILTER_VALIDATE_EMAIL))throw new InvalidArgumentException('這封郵件的信封寄件者不是有效地址（'.($addr===''?'空寄件者':$addr).'），無法自動建立名單條目，請改用「全域名單」分頁手動填寫。');
+      if($scope==='rcpt'){
+        $object=(string)$row['rcpt'];
+        if(!in_array($object,sm_targets(),true))throw new InvalidArgumentException('收件者 '.$object.' 不是本機信箱或網域，無法建立個別名單。');
+        $value=sm_sender_policy_value($cond,$addr);
+        foreach(sm_policies() as $existing)
+          if($existing['object']===$object && $existing['option']===($kind==='wl'?'whitelist_from':'blacklist_from') && strcasecmp($existing['value'],$value)===0)
+            throw new InvalidArgumentException($object.' 的'.($kind==='wl'?'白':'黑').'名單已有這筆條件：'.$value);
+        sm_backup($op,null,['scope'=>'rcpt','object'=>$object,'kind'=>$kind,'value'=>$value]);
+        sm_native(fn()=>policy('add','mailbox',['username'=>$object,'object_list'=>$kind,'object_from'=>$value]));
+        return ['message'=>'已把 '.$value.' 加入 '.$object.' 的'.($kind==='wl'?'白':'黑').'名單（只影響這個信箱）。'];
+      }
+      $match=(string)($p['match'] ?? 'smtp');if(!in_array($match,['smtp','mime'],true))throw new InvalidArgumentException('比對對象不正確。');
+      $file='global_'.$match.'_from_'.($kind==='wl'?'whitelist':'blacklist').'.map';
+      $maps=sm_maps();if(!isset($maps[$file]))throw new RuntimeException('找不到名單檔案 '.$file.'。');
+      $rule=sm_sender_rule($cond,$addr);
+      $old=$maps[$file];
+      foreach(preg_split('/\R/u',$old['content']) as $line)
+        if(trim($line)===$rule)throw new InvalidArgumentException('「'.$old['label'].'」已有這條規則：'.$rule);
+      $content=rtrim($old['content'],"\r\n")."\n".$rule."\n";
+      if(strlen($content)>262144)throw new InvalidArgumentException('名單內容過長。');
+      sm_backup($op,$old,['scope'=>'global','file'=>$file,'content'=>$content,'added'=>$rule]);
+      sm_native(fn()=>rspamd_maps('edit',['map'=>[$file],'rspamd_map_data'=>$content]));
+      $actual=sm_maps()[$file] ?? null;
+      if(!$actual || !in_array($rule,array_map('trim',preg_split('/\R/u',$actual['content'])),true))throw new RuntimeException('名單回讀時找不到新增的規則，請到「全域名單」分頁確認。');
+      return ['message'=>'已把 '.$rule.' 加入「'.$old['label'].'」（全域生效）。','map'=>$actual];
     case 'outbound_release':
       $id=$p['id'] ?? null;
       if(!(is_int($id) || (is_string($id) && ctype_digit($id))))throw new InvalidArgumentException('請指定要放行的郵件。');
@@ -378,6 +789,184 @@ function sm_mutate(string $op,array $p): array {
       chmod($tmp,0600);
       if(!rename($tmp,$dir.'/request.json')){@unlink($tmp);throw new RuntimeException('無法送出更新請求。');}
       return ['message'=>'已送出更新請求。主機會驗證更新密碼後開始更新；更新期間網頁會短暫中斷，完成後此頁會顯示結果。'];
+    case 'backup_request':
+      // Same contract as update_request: hand the job to the root agent, which verifies
+      // the passphrase. The backup target is fixed on the host, so nothing the web layer
+      // sends can redirect a copy of the mail somewhere else.
+      $dir='/updater';
+      if(!is_dir($dir) || !is_writable($dir))throw new RuntimeException('尚未啟用網頁備份，請先在主機執行 setup-nas-backup.sh。');
+      if(!is_file($dir.'/backup-target.json'))throw new RuntimeException('尚未設定 NAS，請先在主機執行 setup-nas-backup.sh。');
+      // No passphrase here: a backup only ever writes one more encrypted copy to a
+      // destination fixed on the host. The host agent rate-limits it instead, because the
+      // real risk is repeated triggering interrupting mail.
+      if(is_file($dir.'/backup-request.json'))throw new RuntimeException('已有一筆備份請求待處理，請稍候。');
+      $bstatus=sm_nas_backup_status();
+      if(($bstatus['state'] ?? '')==='running')throw new RuntimeException('備份正在進行中。');
+      sm_backup($op,null,['actor'=>$_SESSION['mailcow_cc_username'] ?? 'admin']);
+      $payload=json_encode(['ts'=>time(),'user'=>$_SESSION['mailcow_cc_username'] ?? 'admin'],JSON_UNESCAPED_UNICODE);
+      $tmp=$dir.'/.backup-request.tmp';
+      if(file_put_contents($tmp,$payload)===false)throw new RuntimeException('無法寫入備份請求。');
+      chmod($tmp,0600);
+      if(!rename($tmp,$dir.'/backup-request.json')){@unlink($tmp);throw new RuntimeException('無法送出備份請求。');}
+      return ['message'=>'已送出備份請求。過程中部分郵件服務會短暫停止，完成後此頁會顯示結果。'];
+    case 'restore_request':
+      // Three independent gates: the update passphrase (verified by the root agent), an
+      // explicit component whitelist, and the admin retyping the exact backup name.
+      $dir='/updater';
+      if(!is_dir($dir) || !is_writable($dir))throw new RuntimeException('尚未啟用網頁還原。');
+      if(!is_file($dir.'/backup-target.json'))throw new RuntimeException('尚未設定 NAS。');
+      $pass=(string)($p['passphrase'] ?? '');
+      if($pass==='')throw new InvalidArgumentException('請輸入更新密碼。');
+      if(strlen($pass)>256)throw new InvalidArgumentException('更新密碼過長。');
+      $name=trim((string)($p['backup'] ?? ''));
+      if(!preg_match('/^mailcow-[0-9][0-9-]*$/',$name))throw new InvalidArgumentException('請選擇要還原的備份。');
+      if(trim((string)($p['confirm'] ?? ''))!==$name)throw new InvalidArgumentException('確認欄位必須與備份名稱完全相同。');
+      $known=array_column(sm_nas_backup_status()['backups'] ?? [],'name');
+      if($known && !in_array($name,$known,true))throw new InvalidArgumentException('這份備份不在 NAS 的清單中，請重新讀取後再試。');
+      $comps=$p['components'] ?? [];
+      if(!is_array($comps) || !$comps)throw new InvalidArgumentException('請至少選擇一個要還原的元件。');
+      $comps=array_values(array_unique(array_map('strval',$comps)));
+      foreach($comps as $c){
+        if(!in_array($c,SM_RESTORE_WEB_COMPONENTS,true))
+          throw new InvalidArgumentException('元件 '.$c.' 不能從網頁還原；信件類（vmail／crypt）請在主機執行。');
+      }
+      if(is_file($dir.'/restore-request.json'))throw new RuntimeException('已有一筆還原請求待處理，請稍候。');
+      $rstatus=sm_nas_restore_status();
+      if(($rstatus['state'] ?? '')==='running')throw new RuntimeException('還原正在進行中。');
+      $bstate=sm_nas_backup_status();
+      if(($bstate['state'] ?? '')==='running')throw new RuntimeException('備份正在進行中，請等它結束再還原。');
+      sm_backup($op,null,['actor'=>$_SESSION['mailcow_cc_username'] ?? 'admin','backup'=>$name,'components'=>$comps]);
+      $payload=json_encode(['ts'=>time(),'user'=>$_SESSION['mailcow_cc_username'] ?? 'admin','backup'=>$name,'components'=>$comps,'passphrase'=>$pass],JSON_UNESCAPED_UNICODE);
+      $tmp=$dir.'/.restore-request.tmp';
+      if(file_put_contents($tmp,$payload)===false)throw new RuntimeException('無法寫入還原請求。');
+      chmod($tmp,0600);
+      if(!rename($tmp,$dir.'/restore-request.json')){@unlink($tmp);throw new RuntimeException('無法送出還原請求。');}
+      return ['message'=>'已送出還原請求（'.$name.'：'.implode('、',$comps).'）。主機會驗證密碼、檢查備份完整性並先快照目前狀態，期間服務會中斷。'];
+    case 'geo_request':
+      // Opening a country is security-relevant, so it needs the update passphrase, which
+      // the root agent verifies; it also re-validates every field before touching nft.
+      $dir='/updater';
+      $gs=sm_geo_status();
+      if(empty($gs['configured']))throw new RuntimeException($gs['message'] ?: '尚未安裝登入地區限制。');
+      if(!empty($gs['pending']))throw new RuntimeException('已有一筆登入地區變更待處理，請稍候。');
+      $pass=(string)($p['passphrase'] ?? '');
+      if($pass==='')throw new InvalidArgumentException('請輸入更新密碼。');
+      if(strlen($pass)>256)throw new InvalidArgumentException('更新密碼過長。');
+      $known=array_flip($gs['available_countries'] ?? []);
+      $cc=[];
+      foreach((array)($p['countries'] ?? []) as $c){
+        $c=strtoupper((string)$c);
+        if(!preg_match('/^[A-Z]{2}$/',$c) || !isset($known[$c]))throw new InvalidArgumentException('國家代碼不正確：'.$c);
+        if(!in_array($c,$cc,true))$cc[]=$c;
+      }
+      $tmp=[];
+      foreach((array)($p['temporary'] ?? []) as $e){
+        if(!is_array($e))throw new InvalidArgumentException('臨時開放項目格式不正確。');
+        $c=strtoupper((string)($e['cc'] ?? ''));$until=(int)($e['until'] ?? 0);
+        if(!preg_match('/^[A-Z]{2}$/',$c) || !isset($known[$c]))throw new InvalidArgumentException('臨時開放的國家代碼不正確：'.$c);
+        if($until<=time())continue;
+        if($until>time()+90*86400+3600)throw new InvalidArgumentException('臨時開放最長 90 天。');
+        $tmp[]=['cc'=>$c,'until'=>$until,'note'=>mb_substr(preg_replace('/[\x00-\x1f]/u','',(string)($e['note'] ?? '')),0,60)];
+      }
+      $enabled=!empty($p['enabled']);
+      if($enabled && !$cc && !$tmp)throw new InvalidArgumentException('啟用時至少要開放一個國家，否則所有外部登入都會被擋。');
+      if(count($cc)>60 || count($tmp)>60)throw new InvalidArgumentException('國家數量過多。');
+      $policy=['enabled'=>$enabled,'countries'=>$cc,'temporary'=>$tmp];
+      sm_backup($op,null,['actor'=>$_SESSION['mailcow_cc_username'] ?? 'admin','policy'=>$policy]);
+      $payload=json_encode(['ts'=>time(),'user'=>$_SESSION['mailcow_cc_username'] ?? 'admin','policy'=>$policy,'passphrase'=>$pass],JSON_UNESCAPED_UNICODE);
+      $tmpf=$dir.'/.geo-request.tmp';
+      if(file_put_contents($tmpf,$payload)===false)throw new RuntimeException('無法寫入登入地區請求。');
+      chmod($tmpf,0600);
+      if(!rename($tmpf,$dir.'/geo-request.json')){@unlink($tmpf);throw new RuntimeException('無法送出登入地區請求。');}
+      return ['message'=>'已送出登入地區變更，主機驗證密碼後約數秒內生效。'];
+    case 'host_update_request':
+      // Two actions only, both gated by the update passphrase that the root agent checks.
+      // 'apply' restarts the container runtime; 'reboot' restarts the machine. Neither is
+      // ever automatic, which is what the admin asked for.
+      $dir='/updater';
+      if(!is_dir($dir) || !is_writable($dir))throw new RuntimeException('尚未啟用網頁主機更新。');
+      if(!is_file($dir.'/host-status.json'))throw new RuntimeException('尚未設定主機更新，請先在主機執行 setup-host-update.sh。');
+      $act=(string)($p['action'] ?? '');
+      if(!in_array($act,['apply','reboot'],true))throw new InvalidArgumentException('不支援的動作。');
+      $pass=(string)($p['passphrase'] ?? '');
+      if($pass==='')throw new InvalidArgumentException('請輸入更新密碼。');
+      if(strlen($pass)>256)throw new InvalidArgumentException('更新密碼過長。');
+      if(is_file($dir.'/host-request.json'))throw new RuntimeException('已有一筆主機維護請求待處理，請稍候。');
+      $hs=sm_host_update_status();
+      if(in_array($hs['state'] ?? '',['applying','rebooting'],true))throw new RuntimeException('主機維護正在進行中。');
+      if($act==='reboot' && empty($hs['reboot_required']))
+        throw new InvalidArgumentException('目前沒有需要重開機才生效的更新，不需重開。');
+      sm_backup($op,null,['actor'=>$_SESSION['mailcow_cc_username'] ?? 'admin','action'=>$act]);
+      $payload=json_encode(['ts'=>time(),'user'=>$_SESSION['mailcow_cc_username'] ?? 'admin','action'=>$act,'passphrase'=>$pass],JSON_UNESCAPED_UNICODE);
+      $tmp=$dir.'/.host-request.tmp';
+      if(file_put_contents($tmp,$payload)===false)throw new RuntimeException('無法寫入主機維護請求。');
+      chmod($tmp,0600);
+      if(!rename($tmp,$dir.'/host-request.json')){@unlink($tmp);throw new RuntimeException('無法送出主機維護請求。');}
+      return ['message'=>$act==='apply'
+        ?'已送出主機更新請求。容器執行環境會重啟，郵件服務短暫中斷，完成後此頁會顯示結果。'
+        :'已送出重開機請求。主機會在約 1 分鐘後重開，開機後容器會自動回復。'];
+    case 'nas_setup_request':
+      // The SMB password passes through here once, by explicit choice, so that the NAS can
+      // be configured from the page. It is written straight to a 0600 request file that the
+      // root agent shreds after use: never to Redis, the database, the audit trail or a log.
+      $dir='/updater';
+      $pass=(string)($p['passphrase'] ?? '');
+      if($pass==='')throw new InvalidArgumentException('請輸入更新密碼。');
+      if(strlen($pass)>256)throw new InvalidArgumentException('更新密碼過長。');
+      $host=trim((string)($p['nas_host'] ?? ''));
+      $share=trim((string)($p['nas_share'] ?? ''));
+      $path=trim(trim((string)($p['nas_path'] ?? ''),'/'));
+      $nuser=trim((string)($p['nas_user'] ?? ''));
+      $domain=trim((string)($p['nas_domain'] ?? ''));
+      $npass=(string)($p['nas_pass'] ?? '');
+      $vers=trim((string)($p['nas_vers'] ?? '3.0'));
+      $keep=trim((string)($p['keep'] ?? '8'));
+      // Mirrors the host-side validation so the admin gets the error on the page instead
+      // of having to read a log; the host checks again regardless.
+      if(!preg_match('/^[A-Za-z0-9._-]{1,253}$/',$host))throw new InvalidArgumentException('伺服器位址只能是主機名稱或 IP。');
+      if(!preg_match('/^[A-Za-z0-9._$ -]{1,80}$/',$share))throw new InvalidArgumentException('分享名稱含不允許的字元。');
+      if($path!=='' && (!preg_match('~^[A-Za-z0-9._/-]{1,200}$~',$path) || strpos($path,'..')!==false))
+        throw new InvalidArgumentException('子目錄只能是英數、點、底線、減號與斜線，且不可含 ..。');
+      if(!preg_match('/^[A-Za-z0-9._@\\-]{1,128}$/',$nuser))throw new InvalidArgumentException('使用者名稱含不允許的字元。');
+      if($domain!=='' && !preg_match('/^[A-Za-z0-9._-]{1,128}$/',$domain))throw new InvalidArgumentException('網域含不允許的字元。');
+      if($npass==='')throw new InvalidArgumentException('請輸入 NAS 密碼。');
+      if(strlen($npass)>256)throw new InvalidArgumentException('NAS 密碼過長。');
+      if(preg_match('/[\r\n]/',$npass))throw new InvalidArgumentException('NAS 密碼不可含換行。');
+      if(!in_array($vers,SM_NAS_SMB_VERSIONS,true))throw new InvalidArgumentException('SMB 版本不在允許清單內。');
+      if(!preg_match('/^[1-9][0-9]?$/',$keep))throw new InvalidArgumentException('保留份數必須是 1-99 的整數。');
+      // Preconditions come after validation so a bad field reports itself clearly.
+      if(!is_dir($dir) || !is_writable($dir))throw new RuntimeException('尚未啟用網頁設定。');
+      if(!is_file($dir.'/nas-webconfig.json'))throw new RuntimeException('尚未啟用網頁設定 NAS，請先在主機執行 setup-nas-webconfig.sh。');
+      if(is_file($dir.'/nas-setup-request.json'))throw new RuntimeException('已有一筆設定請求待處理，請稍候。');
+      $ns=sm_nas_setup_status();
+      if(($ns['state'] ?? '')==='running')throw new RuntimeException('設定正在進行中。');
+      // Audit the target only. The password must not end up in the audit trail.
+      sm_backup($op,null,['actor'=>$_SESSION['mailcow_cc_username'] ?? 'admin',
+        'target'=>'//'.$host.'/'.$share.($path!==''?'/'.$path:''),'user'=>$nuser,'vers'=>$vers,'keep'=>$keep]);
+      $payload=json_encode(['ts'=>time(),'user'=>$_SESSION['mailcow_cc_username'] ?? 'admin',
+        'passphrase'=>$pass,'nas_host'=>$host,'nas_share'=>$share,'nas_path'=>$path,
+        'nas_user'=>$nuser,'nas_domain'=>$domain,'nas_pass'=>$npass,'nas_vers'=>$vers,'keep'=>$keep],
+        JSON_UNESCAPED_UNICODE);
+      $tmp=$dir.'/.nas-setup-request.tmp';
+      $fh=@fopen($tmp,'w');
+      if(!$fh)throw new RuntimeException('無法寫入設定請求。');
+      @chmod($tmp,0600);
+      $ok=fwrite($fh,$payload)!==false;
+      fclose($fh);
+      $payload=null;$npass=null;$pass=null;
+      if(!$ok){@unlink($tmp);throw new RuntimeException('無法寫入設定請求。');}
+      if(!rename($tmp,$dir.'/nas-setup-request.json')){@unlink($tmp);throw new RuntimeException('無法送出設定請求。');}
+      return ['message'=>'已送出 NAS 設定請求。主機會驗證密碼、套用設定並實際測試掛載，約數秒到數十秒。'];
+    case 'backup_notify_save':
+      global $redis;
+      $old=sm_backup_notify();
+      $raw=trim((string)($p['value'] ?? ''));
+      // Empty turns the failure notice off; the backup itself keeps running.
+      $new=($raw==='')?'':implode(',',sm_parse_addresses($raw));
+      sm_backup($op,$old,$new);
+      try{$redis->Set('BACKUP_NOTIFY',$new);}catch(Throwable $e){throw new RuntimeException('無法儲存設定（Redis）。');}
+      if(sm_backup_notify()!==$new)throw new RuntimeException('設定回讀不符，請重試。');
+      return ['message'=>$new===''?'已關閉備份失敗通知。':'備份失敗通知收件人已更新為：'.$new,'notify'=>$new];
     case 'outbound_notify_save':
     case 'rejected_notify_save':
       global $redis;

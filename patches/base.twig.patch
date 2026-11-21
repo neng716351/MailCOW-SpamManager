@@ -1,8 +1,8 @@
 diff --git a/data/web/templates/base.twig b/data/web/templates/base.twig
-index e0f3b5b3..ae2d5520 100644
+index 9c3cf67a5..bedce8cb9 100644
 --- a/data/web/templates/base.twig
 +++ b/data/web/templates/base.twig
-@@ -75,6 +75,8 @@
+@@ -76,6 +76,8 @@
            <ul class="dropdown-menu">
              <li><a href="/admin/mailbox" class="dropdown-item {% if is_uri('mailbox') %}active{% endif %}">{{ lang.header.mailcow_config }}</a></li>
              <li><a href="/quarantine" class="dropdown-item {% if is_uri('quarantine') %}active{% endif %}">{{ lang.header.quarantine }}</a></li>

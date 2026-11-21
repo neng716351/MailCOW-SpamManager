@@ -1,31 +1,112 @@
 {
-  "_comment": "Copy to spammanager.customizations.json and edit for your deployment. It drives the 'local customizations' panel on the Spam Manager overview tab, which checks whether your local changes survived the last `update.sh` (it merges with -X theirs, so tracked files you modified can be reverted). Paths are as seen from inside the php-fpm container. Keep your real file out of version control: it describes your deployment.",
+  "_comment": "Site-specific checklist for the Spam Manager 'local customizations' panel. Not published: keep deployment details out of the public extension repo. Paths are as seen from the php-fpm container.",
   "checks": [
     {
-      "name": "rspamd quarantine/hold rules",
+      "name": "rspamd 留存規則（全部來信留存＋外寄攔截＋進站通知）",
       "path": "/localcheck/rspamd-local.d/metadata_exporter.conf",
-      "must": ["outbound_reject", "OUTBOUND_HOLD", "inbound_reject", "INBOUND_NOTIFY"],
-      "must_not": ["if not task:has_symbol"]
+      "must": [
+        "outbound_reject",
+        "OUTBOUND_HOLD",
+        "inbound_reject",
+        "INBOUND_NOTIFY",
+        "return task:get_metric_action('default') == 'reject'"
+      ],
+      "must_not": [
+        "if not task:has_symbol('RCPT_MAILCOW_DOMAIN') then return false end",
+        "if action == 'reject' or action == 'add header' or action == 'rewrite subject' then"
+      ]
     },
     {
-      "name": "outbound_hold table definition (init_db)",
+      "name": "外寄留存資料表定義（init_db）",
       "path": "/web/inc/init_db.inc.php",
-      "must": ["\"outbound_hold\""]
+      "must": [
+        "\"outbound_hold\""
+      ]
     },
     {
-      "name": "Spam Manager menu entry (base.twig)",
+      "name": "管理選單的 Spam Manager 入口（base.twig）",
       "path": "/web/templates/base.twig",
-      "must": ["/admin/SpamManager"]
+      "must": [
+        "/admin/SpamManager"
+      ]
+    },
+    {
+      "name": "Postfix 白名單查詢逾時修正（master.cf）",
+      "path": "/localcheck/postfix/master.cf",
+      "must": [
+        "command_time_limit=30d"
+      ]
+    },
+    {
+      "name": "主機層名單規則（來源 IP／HELO／反解）",
+      "path": "/localcheck/rspamd-local.d/multimap.conf",
+      "must": [
+        "GLOBAL_IP_BL",
+        "GLOBAL_HELO_WL",
+        "GLOBAL_HELO_BL",
+        "GLOBAL_HOSTNAME_WL",
+        "GLOBAL_HOSTNAME_BL",
+        "GLOBAL_URL_BL"
+      ]
+    },
+    {
+      "name": "名單登錄（vars.inc.php 的 RSPAMD_MAPS）",
+      "path": "/web/inc/vars.inc.php",
+      "must": [
+        "global_helo_whitelist.map",
+        "global_hostname_blacklist.map",
+        "'ip' => array(",
+        "'asn' => array(",
+        "global_url_blacklist.map"
+      ]
+    },
+    {
+      "name": "留存副本不觸發使用者通知（pipe.php）",
+      "path": "/localcheck/rspamd-meta_exporter/pipe.php",
+      "must": [
+        "$pre_notified",
+        "'no action', 'greylist', 'soft reject'"
+      ]
+    },
+    {
+      "name": "群組別名的專屬過濾門檻（settings.php）",
+      "path": "/dynmaps/settings.php",
+      "must": [
+        "alias-spamlevels.json",
+        "alias_score_",
+        "ALIAS_SPAMLEVEL",
+        "$alias_levels_mtime"
+      ]
+    },
+    {
+      "name": "郵件內文 HTML 原貌檢視（qpreview.php）",
+      "path": "/web/qpreview.php",
+      "must": [
+        "qp_sanitize_html",
+        "QP_ALLOWED_TAGS",
+        "qp-deadlink",
+        "srcdoc",
+        "sandbox"
+      ]
     }
   ],
   "files": [
     "/web/admin/SpamManager.php",
     "/web/admin/SpamManagerApi.php",
     "/web/inc/spammanager.inc.php",
+    "/web/inc/impersonation.inc.php",
     "/web/js/site/spammanager.js",
+    "/web/js/site/spammanager.translations.js",
+    "/web/js/site/impersonation.js",
     "/web/templates/spammanager.twig",
     "/web/templates/spammanager-controls.twig",
     "/meta_exporter/pipe_outbound.php",
-    "/meta_exporter/pipe_inbound_notify.php"
+    "/meta_exporter/pipe_inbound_notify.php",
+    "/rspamd_custom_maps/global_ip_blacklist.map",
+    "/rspamd_custom_maps/global_helo_whitelist.map",
+    "/rspamd_custom_maps/global_helo_blacklist.map",
+    "/rspamd_custom_maps/global_hostname_whitelist.map",
+    "/rspamd_custom_maps/global_hostname_blacklist.map",
+    "/dynmaps/alias-spamlevels.json"
   ]
 }

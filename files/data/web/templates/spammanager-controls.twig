@@ -1,5 +1,6 @@
 <div class="d-flex flex-wrap gap-1 mb-2" role="navigation" aria-label="Spam Manager 功能">
-  {% for key,label in {'overview':'總覽','scores':'評分與試算','maps':'全域名單','policies':'個別規則','impersonation':'防冒名','history':'郵件紀錄','rejected':'被拒收郵件','outbound':'外寄攔截'} %}
+  {% for key,label in {'overview':'總覽','scores':'評分與試算','maps':'全域名單','policies':'個別規則','impersonation':'防冒名','history':'掃描紀錄（無內文）','rejected':'郵件留存．看內文','outbound':'外寄攔截','update':'系統更新','verify':'設定驗證','backup':'備份與還原','geo':'登入地區'} %}
+  {% if key == 'update' %}<span class="vr mx-1" aria-hidden="true"></span><span class="small text-muted align-self-center me-1">維護</span>{% endif %}
   <button type="button" class="btn btn-sm {% if key == 'overview' %}btn-primary{% else %}btn-outline-secondary{% endif %}" data-sm-panel="{{ key }}" aria-pressed="{% if key == 'overview' %}true{% else %}false{% endif %}">{{ label }}</button>
   {% endfor %}
   <button type="button" id="sm-refresh" class="btn btn-sm btn-outline-secondary ms-auto">重新讀取設定</button>
@@ -18,6 +19,76 @@
     <div id="sm-relations" class="small text-muted mt-2"></div>
     <div class="d-flex flex-wrap gap-2 mt-2"><a class="small" href="/rspamd/" target="_blank" rel="noopener">Rspamd 原生模組／統計</a><a class="small" href="/admin/system">Mailcow 系統設定／隔離區</a></div>
   </div></div>
+  <div class="card mb-2"><div class="card-header py-2 px-3 small">系統維護</div><div class="card-body p-2">
+    <div class="table-responsive"><table class="table table-sm sm-table mb-0"><tbody>
+      <tr><td style="width:7rem">系統更新</td><td id="sm-ov-update" class="small text-muted">讀取中…</td><td class="sm-actions"><button class="btn btn-sm btn-outline-secondary" type="button" data-sm-go="update">前往</button></td></tr>
+      <tr><td>設定驗證</td><td id="sm-ov-verify" class="small text-muted">讀取中…</td><td class="sm-actions"><button class="btn btn-sm btn-outline-secondary" type="button" data-sm-go="verify">前往</button></td></tr>
+      <tr><td>登入地區</td><td id="sm-ov-geo" class="small text-muted">讀取中…</td><td class="sm-actions"><button class="btn btn-sm btn-outline-secondary" type="button" data-sm-go="geo">前往</button></td></tr>
+      <tr><td>備份與還原</td><td id="sm-ov-backup" class="small text-muted">讀取中…</td><td class="sm-actions"><button class="btn btn-sm btn-outline-secondary" type="button" data-sm-go="backup">前往</button></td></tr>
+    </tbody></table></div>
+  </div></div>
+  <div class="card"><div class="card-header py-2 px-3 small">最近的變更前備份</div><div class="card-body p-2 small" id="sm-audit">尚無操作紀錄</div></div>
+</section>
+<section data-sm-section="update" hidden>
+  <div class="card mb-2">
+    <div class="card-header py-2 px-3 small d-flex align-items-center justify-content-between"><span>更新 Mailcow</span><button id="sm-update-refresh" type="button" class="btn btn-sm btn-outline-secondary py-0">重新讀取</button></div>
+    <div class="card-body p-3">
+      <div id="sm-update-status" class="small text-muted mb-2">讀取中…</div>
+      <form id="sm-update-form" class="row g-2 align-items-end" data-cached-form="false">
+        <div class="col-md-8">
+          <label for="sm-update-pass" class="form-label small mb-1">更新密碼</label>
+          <input id="sm-update-pass" type="password" class="form-control form-control-sm" autocomplete="new-password" placeholder="在主機設定的更新密碼">
+          <div class="small text-muted mt-1">與管理員登入密碼不同。由主機端驗證，網頁端不會儲存或比對。</div>
+        </div>
+        <div class="col-md-4"><button type="submit" class="btn btn-sm btn-warning w-100">開始更新</button></div>
+      </form>
+      <div id="sm-update-progress" class="mt-3" hidden>
+        <div class="d-flex flex-wrap align-items-baseline gap-2 mb-2">
+          <strong class="small">執行進度</strong>
+          <span id="sm-update-elapsed" class="small text-muted"></span>
+          <span id="sm-update-version" class="small"></span>
+        </div>
+        <ol id="sm-update-steps" class="sm-steps list-unstyled mb-2"></ol>
+        <div id="sm-update-problems" class="alert alert-danger small py-2 px-3 mb-2" hidden></div>
+        <div class="d-flex flex-wrap align-items-center gap-3 small mb-1">
+          <strong>更新內容（完整紀錄）</strong>
+          <span id="sm-update-logmeta" class="text-muted"></span>
+          <label class="form-check-label"><input id="sm-update-key" type="checkbox" class="form-check-input me-1">只看步驟與問題</label>
+          <label class="form-check-label"><input id="sm-update-follow" type="checkbox" class="form-check-input me-1" checked>自動捲到最新</label>
+        </div>
+        <pre id="sm-update-log" class="sm-log small border rounded p-2 mb-0"></pre>
+      </div>
+      <p class="small text-muted mt-2 mb-0">更新會執行官方 <code>update.sh</code>，並自動重新套用本機自訂設定。<strong>過程中網頁與郵件服務會短暫中斷</strong>，期間此頁可能無法連線，完成後會自動顯示結果。請避開尖峰時段。</p>
+    </div>
+  </div>
+  <div class="card mb-2">
+    <div class="card-header py-2 px-3 small d-flex align-items-center justify-content-between">
+      <span>主機系統更新</span>
+      <button id="sm-host-refresh" type="button" class="btn btn-sm btn-outline-secondary py-0">重新讀取</button>
+    </div>
+    <div class="card-body p-3">
+      <div id="sm-host-status" class="small text-muted mb-2">讀取中…</div>
+      <div class="d-flex flex-wrap gap-3 small mb-2" id="sm-host-counts" hidden>
+        <span>待更新：<strong id="sm-host-count">—</strong></span>
+        <span>安全性：<strong id="sm-host-security">—</strong></span>
+        <span>執行中核心：<code id="sm-host-kernel">—</code></span>
+      </div>
+      <div id="sm-host-deferred" class="small mb-2" hidden></div>
+      <div id="sm-host-reboot" class="small mb-2" hidden></div>
+      <form id="sm-host-form" class="row g-2 align-items-end" data-cached-form="false">
+        <div class="col-md-6">
+          <label for="sm-host-pass" class="form-label small mb-1">更新密碼</label>
+          <input id="sm-host-pass" type="password" class="form-control form-control-sm" autocomplete="new-password" placeholder="與更新 mailcow 相同的那組密碼">
+        </div>
+        <div class="col-md-3"><button type="submit" name="apply" class="btn btn-sm btn-primary w-100">套用主機更新</button></div>
+        <div class="col-md-3"><button type="button" id="sm-host-reboot-btn" class="btn btn-sm btn-danger w-100" disabled>重新開機</button></div>
+      </form>
+      <pre id="sm-host-log" class="small bg-body-tertiary border rounded p-2 mt-2 mb-0" style="max-height:200px;overflow:auto;white-space:pre-wrap" hidden></pre>
+      <p class="small text-muted mt-2 mb-0">一般套件與安全性更新（含新核心）<strong>每日自動安裝</strong>，因為 mailcow 跑在容器裡，主機函式庫不影響郵件。<code>docker.io</code>／<code>containerd</code>／<code>runc</code> 的升級會重啟容器執行環境，所以保留給你按「套用主機更新」；新核心要重開機才生效，所以重開機也是獨立的手動動作。<strong>兩者都會造成郵件短暫中斷，請避開尖峰時段。</strong></p>
+    </div>
+  </div>
+</section>
+<section data-sm-section="verify" hidden>
   <div class="card mb-2">
     <div class="card-header py-2 px-3 small d-flex align-items-center justify-content-between">
       <span>本機自訂設定狀態</span>
@@ -29,23 +100,208 @@
       <p class="small text-muted mt-2 mb-0">Mailcow 更新會以上游優先合併，可能覆蓋我們修改過的設定檔。更新後會自動重新套用；若仍顯示「已遺失」，可在主機執行 <code>helper-scripts/reapply-local-customizations.py --apply</code>。</p>
     </div>
   </div>
+</section>
+<section data-sm-section="backup" hidden>
   <div class="card mb-2">
-    <div class="card-header py-2 px-3 small">更新 Mailcow</div>
+    <div class="card-header py-2 px-3 small d-flex align-items-center justify-content-between">
+      <span>NAS 連線設定</span>
+      <button id="sm-nassetup-refresh" type="button" class="btn btn-sm btn-outline-secondary py-0">重新讀取</button>
+    </div>
     <div class="card-body p-3">
-      <div id="sm-update-status" class="small text-muted mb-2">讀取中…</div>
-      <form id="sm-update-form" class="row g-2 align-items-end" data-cached-form="false">
-        <div class="col-md-8">
-          <label for="sm-update-pass" class="form-label small mb-1">更新密碼</label>
-          <input id="sm-update-pass" type="password" class="form-control form-control-sm" autocomplete="new-password" placeholder="在主機設定的更新密碼">
-          <div class="small text-muted mt-1">與管理員登入密碼不同。由主機端驗證，網頁端不會儲存或比對。</div>
+      <div id="sm-nassetup-status" class="small text-muted mb-2">讀取中…</div>
+      <div id="sm-nassetup-hint" class="alert alert-info small py-2 px-3 mb-2" hidden>
+        還需要在主機執行一次下列指令，才能從這裡套用設定（它不會詢問任何事、也不含機密）：
+        <pre class="mb-0 mt-1 p-2 bg-body-tertiary border rounded" style="white-space:pre-wrap">cd /opt/mailcow-dockerized   # 你的 mailcow 安裝目錄
+sudo ./helper-scripts/setup-nas-webconfig.sh</pre>
+        <span class="text-muted">網頁無法自行安裝主機層的 root agent —— 若可以，整套權限隔離就沒有意義了。下面的欄位可以先填好。</span>
+      </div>
+      <form id="sm-nassetup-form" data-cached-form="false">
+        <div class="row g-2">
+          <div class="col-md-5">
+            <label for="sm-nassetup-host" class="form-label small mb-1">SMB 伺服器（IP 或主機名稱）</label>
+            <input id="sm-nassetup-host" type="text" class="form-control form-control-sm" autocomplete="off" placeholder="192.168.1.50">
+          </div>
+          <div class="col-md-4">
+            <label for="sm-nassetup-share" class="form-label small mb-1">分享名稱</label>
+            <input id="sm-nassetup-share" type="text" class="form-control form-control-sm" autocomplete="off" placeholder="backup">
+          </div>
+          <div class="col-md-3">
+            <label for="sm-nassetup-path" class="form-label small mb-1">子目錄（可留空）</label>
+            <input id="sm-nassetup-path" type="text" class="form-control form-control-sm" autocomplete="off" placeholder="mailcow">
+          </div>
+          <div class="col-md-4">
+            <label for="sm-nassetup-user" class="form-label small mb-1">使用者名稱</label>
+            <input id="sm-nassetup-user" type="text" class="form-control form-control-sm" autocomplete="off" placeholder="svc_mailbackup">
+          </div>
+          <div class="col-md-4">
+            <label for="sm-nassetup-pass" class="form-label small mb-1">NAS 密碼</label>
+            <input id="sm-nassetup-pass" type="password" class="form-control form-control-sm" autocomplete="new-password" placeholder="不會顯示、不會留存於網頁端">
+          </div>
+          <div class="col-md-4">
+            <label for="sm-nassetup-domain" class="form-label small mb-1">網域／工作群組（可留空）</label>
+            <input id="sm-nassetup-domain" type="text" class="form-control form-control-sm" autocomplete="off">
+          </div>
+          <div class="col-md-3">
+            <label for="sm-nassetup-vers" class="form-label small mb-1">SMB 版本</label>
+            <select id="sm-nassetup-vers" class="form-select form-select-sm"></select>
+          </div>
+          <div class="col-md-3">
+            <label for="sm-nassetup-keep" class="form-label small mb-1">保留份數</label>
+            <input id="sm-nassetup-keep" type="number" min="1" max="99" value="8" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-6">
+            <label for="sm-nassetup-passphrase" class="form-label small mb-1">更新密碼</label>
+            <input id="sm-nassetup-passphrase" type="password" class="form-control form-control-sm" autocomplete="new-password" placeholder="與更新 mailcow 相同的那組密碼">
+          </div>
+          <div class="col-12"><button type="submit" class="btn btn-sm btn-primary">儲存並測試連線</button></div>
         </div>
-        <div class="col-md-4"><button type="submit" class="btn btn-sm btn-warning w-100">開始更新</button></div>
       </form>
-      <pre id="sm-update-log" class="small bg-body-tertiary border rounded p-2 mt-2 mb-0" style="max-height:220px;overflow:auto;white-space:pre-wrap" hidden></pre>
-      <p class="small text-muted mt-2 mb-0">更新會執行官方 <code>update.sh</code>，並自動重新套用本機自訂設定。<strong>過程中網頁與郵件服務會短暫中斷</strong>，期間此頁可能無法連線，完成後會自動顯示結果。請避開尖峰時段。</p>
+      <pre id="sm-nassetup-log" class="small bg-body-tertiary border rounded p-2 mt-2 mb-0" style="max-height:180px;overflow:auto;white-space:pre-wrap" hidden></pre>
+      <div class="alert alert-warning small py-2 px-3 mt-2 mb-0">
+        儲存後主機會<strong>實際測試掛載與寫入</strong>，失敗不會留下半套設定。
+        NAS 密碼只寫進主機的 <code>/etc/mailcow-nas/</code>（root 專屬、容器讀不到），
+        <strong>網頁端不儲存、不回顯、不寫入稽核紀錄</strong>。
+        <strong>備份加密金鑰不會顯示在網頁上</strong> —— 第一次設定成功後請在主機執行
+        <code>sudo cat /etc/mailcow-nas/backup.key</code> 取出並離線保管，金鑰遺失將無法還原任何備份。
+      </div>
     </div>
   </div>
-  <div class="card"><div class="card-header py-2 px-3 small">最近的變更前備份</div><div class="card-body p-2 small" id="sm-audit">尚無操作紀錄</div></div>
+  <div class="card mb-2">
+    <div class="card-header py-2 px-3 small d-flex align-items-center justify-content-between">
+      <span>備份到 NAS</span>
+      <button id="sm-nas-refresh" type="button" class="btn btn-sm btn-outline-secondary py-0">重新讀取</button>
+    </div>
+    <div class="card-body p-3">
+      <div id="sm-nas-status" class="small text-muted mb-2">讀取中…</div>
+      <dl class="row small mb-2" id="sm-nas-meta" hidden>
+        <dt class="col-sm-3 fw-normal text-muted">備份目標</dt><dd class="col-sm-9 mb-1" id="sm-nas-target">—</dd>
+        <dt class="col-sm-3 fw-normal text-muted">保留份數</dt><dd class="col-sm-9 mb-1" id="sm-nas-retention">—</dd>
+        <dt class="col-sm-3 fw-normal text-muted">自動排程</dt><dd class="col-sm-9 mb-1" id="sm-nas-schedule">—</dd>
+        <dt class="col-sm-3 fw-normal text-muted">加密</dt><dd class="col-sm-9 mb-0" id="sm-nas-encrypted">—</dd>
+      </dl>
+      <form id="sm-nas-form" class="row g-2 align-items-end" data-cached-form="false">
+        <div class="col-md-8">
+          <div class="small text-muted">備份不需要更新密碼（它只會在 NAS 上多一份加密副本，目標由主機固定）。但<strong>過程中 dovecot／postfix／redis／rspamd 會短暫停止</strong>，所以主機端限制至少間隔 5 分鐘才能再執行一次。</div>
+        </div>
+        <div class="col-md-4"><button type="submit" class="btn btn-sm btn-primary w-100">立即備份</button></div>
+      </form>
+      <div class="table-responsive mt-2"><table class="table table-sm sm-table mb-0"><thead><tr><th>NAS 上的備份</th><th class="text-end">大小</th></tr></thead><tbody id="sm-nas-rows"><tr><td colspan="2" class="text-muted small">尚無資料</td></tr></tbody></table></div>
+      <form id="sm-nas-notify-form" class="row g-2 align-items-end mt-2" data-cached-form="false">
+        <div class="col-md-8">
+          <label for="sm-nas-notify" class="form-label small mb-1">備份失敗通知收件人</label>
+          <input id="sm-nas-notify" type="text" class="form-control form-control-sm" placeholder="留空則不寄送通知">
+          <div class="small text-muted mt-1">以逗號分隔，最多 5 個。留空只會關閉通知，備份仍會照排程執行。</div>
+        </div>
+        <div class="col-md-4"><button type="submit" class="btn btn-sm btn-outline-secondary w-100">儲存收件人</button></div>
+      </form>
+      <pre id="sm-nas-log" class="small bg-body-tertiary border rounded p-2 mt-2 mb-0" style="max-height:200px;overflow:auto;white-space:pre-wrap" hidden></pre>
+      <p class="small text-muted mt-2 mb-0">SMB 密碼只存在主機（<code>/etc/mailcow-nas/</code>，root 專屬），網頁看不到也無法更改備份目標 —— 這也是備份不需要密碼的原因。分享只在備份期間掛載，結束即卸載。<strong>備份期間 dovecot／postfix／redis／rspamd 會短暫停止。</strong></p>
+    </div>
+  </div>
+  <div class="card mb-2 border-danger-subtle">
+    <div class="card-header py-2 px-3 small d-flex align-items-center justify-content-between">
+      <span class="text-danger">從 NAS 還原</span>
+      <button id="sm-restore-refresh" type="button" class="btn btn-sm btn-outline-secondary py-0">重新讀取</button>
+    </div>
+    <div class="card-body p-3">
+      <div id="sm-restore-status" class="small text-muted mb-2">讀取中…</div>
+      <div class="alert alert-warning small py-2 px-3 mb-2">
+        <strong>還原會覆蓋線上資料，且無法復原。</strong>
+        網頁只能還原設定類元件；<strong>信件（vmail）與加密金鑰（crypt）必須在主機執行</strong>，以免一次誤操作蓋掉所有信箱。
+        還原前會自動快照目前的 mysql 與 redis，供失敗時退回。
+      </div>
+      <form id="sm-restore-form" data-cached-form="false">
+        <div class="row g-2">
+          <div class="col-md-6">
+            <label for="sm-restore-backup" class="form-label small mb-1">要還原的備份</label>
+            <select id="sm-restore-backup" class="form-select form-select-sm"><option value="">（尚無備份）</option></select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small mb-1">要還原的元件</label>
+            <div id="sm-restore-components" class="d-flex flex-wrap gap-3 small pt-1"></div>
+          </div>
+          <div class="col-md-6">
+            <label for="sm-restore-confirm" class="form-label small mb-1">確認：請完整輸入上面的備份名稱</label>
+            <input id="sm-restore-confirm" type="text" class="form-control form-control-sm" autocomplete="off" placeholder="mailcow-…">
+          </div>
+          <div class="col-md-6">
+            <label for="sm-restore-pass" class="form-label small mb-1">更新密碼</label>
+            <input id="sm-restore-pass" type="password" class="form-control form-control-sm" autocomplete="new-password" placeholder="與更新按鈕相同的那組密碼">
+          </div>
+          <div class="col-12"><button type="submit" class="btn btn-sm btn-danger">開始還原</button></div>
+        </div>
+      </form>
+      <pre id="sm-restore-log" class="small bg-body-tertiary border rounded p-2 mt-2 mb-0" style="max-height:200px;overflow:auto;white-space:pre-wrap" hidden></pre>
+      <p class="small text-muted mt-2 mb-0">還原前會先驗證 SHA256 與壓縮檔完整性，驗證不過就不會動到任何資料。還原 mysql 會停止整個 stack 並依備份的 <code>mailcow.conf</code> 對齊資料庫參數（原檔會另存備份）。信件還原請在主機執行：<code>sudo ./helper-scripts/mailcow-nas-restore.sh --backup &lt;名稱&gt; --components "vmail crypt" --allow-mail</code></p>
+    </div>
+  </div>
+</section>
+<section data-sm-section="geo" hidden>
+  <div class="card mb-2">
+    <div class="card-header py-2 px-3 small d-flex align-items-center justify-content-between">
+      <span>登入地區限制</span>
+      <button id="sm-geo-refresh" type="button" class="btn btn-sm btn-outline-secondary py-0">重新讀取</button>
+    </div>
+    <div class="card-body p-3">
+      <div id="sm-geo-status" class="small fw-semibold mb-2">讀取中…</div>
+      <div id="sm-geo-pending" class="alert alert-warning small py-2 px-3 mb-2" hidden>有尚未套用的變更，輸入更新密碼並按「套用」後才會生效。</div>
+      <div class="row g-3">
+        <div class="col-lg-8">
+          <div class="form-check form-switch mb-2">
+            <input id="sm-geo-enabled" class="form-check-input" type="checkbox" role="switch">
+            <label class="form-check-label small fw-semibold" for="sm-geo-enabled">啟用登入地區限制</label>
+          </div>
+          <div class="small text-muted mb-1">常駐開放的國家</div>
+          <div id="sm-geo-countries" class="d-flex flex-wrap gap-1 mb-2"></div>
+          <datalist id="sm-geo-cc-list"></datalist>
+          <div class="input-group input-group-sm mb-1" style="max-width:420px">
+            <input id="sm-geo-add-cc" class="form-control form-control-sm" list="sm-geo-cc-list" autocomplete="off" placeholder="輸入國家名稱或代碼，例如：日本、JP" aria-label="要常駐開放的國家">
+            <button id="sm-geo-add" type="button" class="btn btn-outline-secondary">加入常駐</button>
+          </div>
+          <div id="sm-geo-add-hint" class="small text-muted mb-3"></div>
+          <div class="small text-muted mb-1">臨時開放（出差用，到期自動關閉）</div>
+          <div class="table-responsive"><table class="table table-sm sm-table mb-2"><thead><tr><th>國家</th><th>到期</th><th>說明</th><th class="sm-actions"></th></tr></thead><tbody id="sm-geo-temp-rows"></tbody></table></div>
+          <div class="row g-1 align-items-end mb-1">
+            <div class="col-5"><label class="form-label small mb-0" for="sm-geo-temp-cc">國家</label><input id="sm-geo-temp-cc" class="form-control form-control-sm" list="sm-geo-cc-list" autocomplete="off" placeholder="例如：日本、JP"></div>
+            <div class="col-3"><label class="form-label small mb-0" for="sm-geo-temp-days">天數</label><select id="sm-geo-temp-days" class="form-select form-select-sm"><option value="1">1 天</option><option value="3">3 天</option><option value="7" selected>7 天</option><option value="14">14 天</option><option value="30">30 天</option><option value="90">90 天</option></select></div>
+            <div class="col-4"><label class="form-label small mb-0" for="sm-geo-temp-note">說明</label><input id="sm-geo-temp-note" class="form-control form-control-sm" maxlength="60" placeholder="例：王經理大阪出差"></div>
+          </div>
+          <div id="sm-geo-quick" class="d-flex flex-wrap align-items-center gap-1 small mb-1"><span class="text-muted">常用：</span></div>
+          <div id="sm-geo-temp-hint" class="small text-muted mb-1"></div>
+          <button id="sm-geo-temp-add" type="button" class="btn btn-sm btn-outline-secondary mb-3">加入臨時開放</button>
+          <form id="sm-geo-form" class="row g-2 align-items-end" data-cached-form="false">
+            <div class="col-md-8">
+              <label for="sm-geo-pass" class="form-label small mb-1">更新密碼</label>
+              <input id="sm-geo-pass" type="password" class="form-control form-control-sm" autocomplete="new-password" placeholder="與更新 mailcow 相同的那組密碼">
+            </div>
+            <div class="col-md-4"><button type="submit" class="btn btn-sm btn-primary w-100">套用</button></div>
+          </form>
+        </div>
+      </div>
+      <hr class="my-3">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <div class="small text-muted mb-1">受限制的服務（需要帳號密碼的埠）</div>
+          <div id="sm-geo-ports" class="small mb-2"></div>
+        </div>
+        <div class="col-md-6">
+          <div class="small text-muted mb-1">不受限制（全世界都能連）</div>
+          <div id="sm-geo-open" class="small mb-2"></div>
+        </div>
+        <div class="col-12">
+          <div class="small text-muted mb-1">過去 24 小時擋下的來源 <span id="sm-geo-counts"></span></div>
+          <div id="sm-geo-bycc" class="d-flex flex-wrap gap-1 small mb-2"></div>
+          <div class="table-responsive sm-scroll" style="max-height:320px"><table class="table table-sm sm-table mb-0"><thead><tr><th>來源 IP</th><th>國家</th><th>次數</th><th>嘗試的服務</th><th>最後一次</th></tr></thead><tbody id="sm-geo-blocked"><tr><td colspan="5" class="small text-muted">尚無資料</td></tr></tbody></table></div>
+          <div id="sm-geo-meta" class="small text-muted mt-2"></div>
+        </div>
+      </div>
+      <div class="alert alert-info small py-2 px-3 mt-3 mb-0">
+        <strong>出差前請先在台灣開好目的地。</strong>人在國外時，這個頁面本身（443 埠）也會被擋，到時就沒辦法自己打開了。
+        廠商寄信（25 埠）不受影響；公司內網一律放行。
+        緊急解除：在主機執行 <code>sudo ./helper-scripts/mailcow-geo-agent.py --disable</code>。
+      </div>
+    </div>
+  </div>
 </section>
 <section data-sm-section="scores" hidden>
   <form id="sm-actions-form" class="card mb-2" data-cached-form="false"><div class="card-body p-3">
@@ -69,7 +325,7 @@
   <form id="sm-map-form" class="card" data-cached-form="false"><div class="card-body p-3">
     <div class="row g-2 align-items-end mb-2"><div class="col-md-8"><label for="sm-map-select" class="form-label small">全域名單／內容規則</label><select id="sm-map-select" class="form-select form-select-sm" aria-describedby="sm-map-effect"></select></div><div class="col-md-4"><button type="submit" class="btn btn-sm btn-primary w-100" disabled>驗證並儲存名單</button></div></div>
     <p id="sm-map-effect" class="small text-muted mb-2"></p>
-    <label for="sm-map-content" class="visually-hidden">名單正規表示式</label><textarea id="sm-map-content" rows="10" spellcheck="false" class="form-control form-control-sm font-monospace"></textarea>
+    <label for="sm-map-content" class="visually-hidden">名單內容</label><textarea id="sm-map-content" rows="10" spellcheck="false" class="form-control form-control-sm font-monospace"></textarea>
     <div class="d-flex flex-wrap align-items-center gap-2 mt-2"><select id="sm-map-kind" class="form-select form-select-sm" style="width:auto" aria-label="條件類型"><option value="addr">精確地址</option><option value="domain">整個網域</option><option value="subdomain">網域含子網域</option><option value="local">寄件者帳號</option></select><input id="sm-map-address" class="form-control form-control-sm" style="width:230px" aria-label="條件內容" placeholder="例如 sender@example.com"><button id="sm-map-insert" type="button" class="btn btn-sm btn-outline-secondary">轉成規則並加入</button><span id="sm-map-count" class="small text-muted"></span></div>
     <div id="sm-map-conflicts" class="small text-danger mt-2"></div>
     <p id="sm-map-hint" class="small text-muted mt-2 mb-1"></p>
@@ -102,11 +358,109 @@
     </form>
   </div></div>
   <div class="card"><div class="card-body p-3">
-    <div class="d-flex flex-wrap align-items-center gap-2 mb-2"><h2 class="h6 mb-0">隔離區留存的郵件</h2><select id="sm-rejected-action" class="form-select form-select-sm" style="width:auto" aria-label="依動作篩選"><option value="reject" selected>拒收（可放行）</option><option value="add header">加標記</option><option value="all">全部</option></select><input id="sm-rejected-search" type="search" class="form-control form-control-sm flex-grow-1" style="width:200px" placeholder="搜尋寄件者、收件者、主旨" aria-label="搜尋被拒收郵件"><button id="sm-rejected-refresh" type="button" class="btn btn-sm btn-outline-secondary">更新清單</button></div>
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-2"><h2 class="h6 mb-0" style="background:#dc3545;color:#fff;padding:.25rem .6rem;border-radius:.25rem">郵件留存紀錄</h2><select id="sm-rejected-action" autocomplete="off" class="form-select form-select-sm" style="width:auto" aria-label="依動作篩選"><option value="reject">拒收（可放行）</option><option value="add header">加標記</option><option value="no action">正常投遞</option><option value="greylist">暫時延遲</option><option value="all" selected>全部</option></select><input id="sm-rejected-search" type="search" class="form-control form-control-sm flex-grow-1" style="width:200px" placeholder="搜尋寄件者、收件者、主旨" aria-label="搜尋被拒收郵件"><button id="sm-rejected-refresh" type="button" class="btn btn-sm btn-outline-secondary">更新清單</button></div>
     <div id="sm-rejected-status" class="small text-muted mb-2"></div>
     <div class="table-responsive sm-scroll"><table class="table table-sm sm-table mb-0"><thead><tr><th>時間</th><th>動作</th><th>寄件者 → 收件者／主旨</th><th>分數</th><th class="sm-actions">操作</th></tr></thead><tbody id="sm-rejected-rows"><tr><td colspan="5" class="small text-muted">讀取中…</td></tr></tbody></table></div>
-    <p class="small text-muted mt-2 mb-0">列出「收件人是本機信箱、且被留存」的郵件，預設只顯示拒收。<strong>加標記的郵件已經投遞到使用者信箱（垃圾郵件匣），所以沒有放行按鈕</strong>，列在這裡只是方便檢視誤判。放行會把原信重新投遞到該收件人信箱。<strong>SMTP 連線階段拒收（如 DNSBL）與往外寄被拒的郵件不會在此</strong>，因為系統沒有留存副本。放行等於略過當初的攔截，請先確認郵件安全無虞。</p>
+    <p class="small text-muted mt-2 mb-0">列出<strong>所有收件人為本機信箱的外部來信</strong>，不論是否被攔截，都可以按「檢視」讀取內文與連結。預設只顯示拒收，要查某封已投遞的信請把篩選改成「正常投遞」或「全部」。<strong>加標記</strong>的信已投遞到垃圾郵件匣，所以沒有放行按鈕，只能另外複製一份乾淨副本到收件匣；<strong>正常投遞／暫時延遲</strong>的信本來就在收件匣，只提供檢視與刪除副本。<strong>SMTP 連線階段拒收（如 DNSBL）與往外寄被拒的郵件不會在此</strong>，因為系統沒有留存副本。放行等於略過當初的攔截，請先確認郵件安全無虞。留存副本會依保留天數自動刪除，不影響使用者信箱裡的原信。</p>
   </div></div>
+  <div class="modal fade" id="sm-msg-modal" tabindex="-1" aria-labelledby="sm-msg-title" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header py-2">
+          <h2 class="h6 modal-title" id="sm-msg-title">郵件內容</h2>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="關閉"></button>
+        </div>
+        <div class="modal-body">
+          <div id="sm-msg-error" class="alert alert-danger py-2 small" hidden></div>
+          <table class="table table-sm sm-table mb-2">
+            <tbody>
+              <tr><th scope="row" style="width:9rem">動作／分數</th><td id="sm-msg-action"></td></tr>
+              <tr><th scope="row">信封寄件者</th><td id="sm-msg-envfrom"></td></tr>
+              <tr><th scope="row">標頭 From</th><td id="sm-msg-hfrom"></td></tr>
+              <tr><th scope="row">收件者</th><td id="sm-msg-rcpt"></td></tr>
+              <tr><th scope="row">主旨</th><td id="sm-msg-subject"></td></tr>
+              <tr><th scope="row">命中項目</th><td id="sm-msg-symbols" class="small"></td></tr>
+              <tr><th scope="row">附件</th><td id="sm-msg-atts" class="small"></td></tr>
+            </tbody>
+          </table>
+          <h3 class="h6 mt-3 mb-1">純文字內文</h3>
+          <pre id="sm-msg-text" class="small border rounded p-2 mb-2" style="white-space:pre-wrap;max-height:260px;overflow:auto"></pre>
+          <h3 class="h6 mb-1">HTML 內文（已轉為純文字）</h3>
+          <pre id="sm-msg-html" class="small border rounded p-2 mb-0" style="white-space:pre-wrap;max-height:260px;overflow:auto"></pre>
+          <p class="small text-muted mt-2 mb-0">內文一律以純文字呈現，不會載入圖片、連結或指令碼，因此開啟這個視窗不會通知寄件者，也不會執行郵件內容。附件只列出名稱與雜湊查詢連結，不會開啟。</p>
+        </div>
+        <div class="modal-footer py-2">
+          <span id="sm-msg-note" class="small text-muted me-auto"></span>
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">關閉</button>
+          <button type="button" id="sm-msg-list" class="btn btn-sm btn-outline-warning">加入名單…</button>
+          <button type="button" id="sm-msg-copy" class="btn btn-sm btn-outline-primary">複製至收件匣</button>
+          <button type="button" id="sm-msg-release" class="btn btn-sm btn-outline-primary">放行</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="modal fade" id="sm-list-modal" tabindex="-1" aria-labelledby="sm-list-title" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header py-2">
+          <h2 class="h6 modal-title" id="sm-list-title">把這封郵件的寄件者加入名單</h2>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="關閉"></button>
+        </div>
+        <div class="modal-body">
+          <div id="sm-list-error" class="alert alert-danger py-2 small" hidden></div>
+          <table class="table table-sm sm-table mb-3">
+            <tbody>
+              <tr><th scope="row" style="width:8rem">信封寄件者</th><td id="sm-list-sender" class="small"></td></tr>
+              <tr><th scope="row">收件者</th><td id="sm-list-rcpt" class="small"></td></tr>
+              <tr><th scope="row">主旨</th><td id="sm-list-subject" class="small"></td></tr>
+            </tbody>
+          </table>
+          <div class="row g-2">
+            <div class="col-sm-6">
+              <label for="sm-list-kind" class="form-label small mb-1">名單類型</label>
+              <select id="sm-list-kind" class="form-select form-select-sm">
+                <option value="bl">黑名單（拒收）</option>
+                <option value="wl">白名單（放過）</option>
+              </select>
+            </div>
+            <div class="col-sm-6">
+              <label for="sm-list-scope" class="form-label small mb-1">生效範圍</label>
+              <select id="sm-list-scope" class="form-select form-select-sm">
+                <option value="global">全域（全公司）</option>
+                <option value="rcpt">只有這個收件人</option>
+              </select>
+            </div>
+            <div class="col-sm-6">
+              <label for="sm-list-cond" class="form-label small mb-1">比對條件</label>
+              <select id="sm-list-cond" class="form-select form-select-sm">
+                <option value="addr">精確地址</option>
+                <option value="domain">整個網域</option>
+                <option value="subdomain">網域含子網域</option>
+              </select>
+            </div>
+            <div class="col-sm-6" id="sm-list-match-wrap">
+              <label for="sm-list-match" class="form-label small mb-1">比對對象</label>
+              <select id="sm-list-match" class="form-select form-select-sm">
+                <option value="smtp">SMTP 信封寄件人</option>
+                <option value="mime">From 標頭</option>
+              </select>
+            </div>
+          </div>
+          <div class="mt-3">
+            <div class="small text-muted mb-1">將寫入</div>
+            <div id="sm-list-target" class="small fw-semibold"></div>
+            <pre id="sm-list-preview" class="small border rounded p-2 mt-1 mb-1" style="white-space:pre-wrap"></pre>
+            <div id="sm-list-effect" class="small text-muted"></div>
+          </div>
+          <p class="small text-muted mt-2 mb-0">寄件者取自隔離區紀錄，不是從這個畫面輸入的，所以不會誤加到其他地址。加入後 Rspamd 會依原生動態名單機制重新載入，不必重啟服務；這筆變更會記在稽核紀錄，之後可在「全域名單」或「個別規則」分頁移除。</p>
+        </div>
+        <div class="modal-footer py-2">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+          <button type="button" id="sm-list-save" class="btn btn-sm btn-primary">加入名單</button>
+        </div>
+      </div>
+    </div>
+  </div>
 </section>
 <section data-sm-section="outbound" hidden>
   <div class="card mb-2"><div class="card-body p-3">

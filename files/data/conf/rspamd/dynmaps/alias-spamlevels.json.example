@@ -1,0 +1,7 @@
+{
+  "shared@example.com": {
+    "_why": "A public group alias that phishing targets first: tag earlier than the global thresholds.",
+    "greylist": 4,
+    "add_header": 5
+  }
+}

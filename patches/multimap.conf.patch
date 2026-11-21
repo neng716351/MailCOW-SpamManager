@@ -1,8 +1,8 @@
 diff --git a/data/conf/rspamd/local.d/multimap.conf b/data/conf/rspamd/local.d/multimap.conf
-index 888bf363..1d285c0b 100644
+index 210d78f94..14b0bf347 100644
 --- a/data/conf/rspamd/local.d/multimap.conf
 +++ b/data/conf/rspamd/local.d/multimap.conf
-@@ -179,3 +179,54 @@ BAD_SUBJECT_00 {
+@@ -159,3 +159,67 @@ BAD_SUBJECT_00 {
    score = 6.0;
    symbols_set = ["BAD_SUBJECT_00"];
  }
@@ -19,6 +19,19 @@ index 888bf363..1d285c0b 100644
 +  score = 2050;
 +  description = "Source IP is on the local blacklist";
 +  symbols_set = ["GLOBAL_IP_BL"];
++}
++
++# Local addition 2026-11-13: block mail by the DOMAIN of any link in the body.
++# Phishing rotates sender addresses freely but reuses its landing page, so the link
++# domain is the durable identifier. 'url' matches the host of every extracted URL;
++# the map holds bare domains (one per line), which also cover their subdomains.
++GLOBAL_URL_BL {
++  type = "url";
++  filter = "tld";
++  map = "${LOCAL_CONFDIR}/custom/global_url_blacklist.map";
++  score = 2050;
++  description = "A link in the message points at a locally blacklisted domain";
++  symbols_set = ["GLOBAL_URL_BL"];
 +}
 +
 +GLOBAL_HELO_WL {

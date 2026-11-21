@@ -16,6 +16,11 @@ try{
     elseif($op==='outbound'){$data=['rows'=>sm_outbound(),'notify'=>sm_outbound_notify()];}
     elseif($op==='customizations'){$data=['items'=>sm_customizations()];}
     elseif($op==='update_status'){$data=sm_update_status();}
+    elseif($op==='nas_backup'){$data=sm_nas_backup_status();}
+    elseif($op==='nas_restore'){$data=sm_nas_restore_status();}
+    elseif($op==='host_update'){$data=sm_host_update_status();}
+    elseif($op==='nas_setup'){$data=sm_nas_setup_status();}
+    elseif($op==='geo'){$data=sm_geo_status();}
     else throw new InvalidArgumentException('未知的讀取操作。');
     sm_reply(200,['ok'=>true,'data'=>$data]);
   }

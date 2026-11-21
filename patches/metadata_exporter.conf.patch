@@ -1,5 +1,5 @@
 diff --git a/data/conf/rspamd/local.d/metadata_exporter.conf b/data/conf/rspamd/local.d/metadata_exporter.conf
-index cc85faac..cdc00002 100644
+index cc85faacd..0ebefd7bf 100644
 --- a/data/conf/rspamd/local.d/metadata_exporter.conf
 +++ b/data/conf/rspamd/local.d/metadata_exporter.conf
 @@ -17,6 +17,18 @@ rules {
@@ -21,20 +21,24 @@ index cc85faac..cdc00002 100644
  }
  
  custom_select {
-@@ -43,17 +55,40 @@ return function(task)
+@@ -43,17 +55,44 @@ return function(task)
  end
  EOD;
    reject_no_global_bl = <<EOD
-+-- Local change 2026-10-28: widened so ALL reject / add header / rewrite subject
-+-- mail (including global-blacklist and impersonation hits) is kept in quarantine,
-+-- so admins can review and release it from the Spam Manager page. Mail is still
-+-- rejected; this only keeps a copy. Original guard preserved in local-fixes backup.
++-- Local change 2026-11-13: keep a copy of EVERY inbound message addressed to a local
++-- mailbox, not only reject / add header / rewrite subject. Mail that was merely
++-- greylisted or passed clean is now reviewable in Spam Manager; the 2026-11-12
++-- tax-phishing run scored 7.89, just under add_header=8, so nothing was kept.
++-- Excludes our own authenticated senders: those go to OUTBOUND_HOLD.
++-- Copies are purged by Q_MAX_AGE. Supersedes the 2026-10-28 widening.
 +return function(task)
-+  local action = task:get_metric_action('default')
-+  if action == 'reject' or action == 'add header' or action == 'rewrite subject' then
-+    return true
-+  end
-+  return false
++  if task:has_symbol('MAILCOW_AUTH') then return false end
++  if task:has_symbol('RCPT_MAILCOW_DOMAIN') then return true end
++  -- 2026-11-16: rspamd stops running rules once the score passes reject, so a
++  -- blacklist hit (GLOBAL_URL_BL and friends, 2050 points) can end the scan before
++  -- RCPT_MAILCOW_DOMAIN is ever evaluated. Keep every non-authenticated reject;
++  -- pipe.php drops recipients that are not ours.
++  return task:get_metric_action('default') == 'reject'
 +end
 +EOD;
 +  outbound_reject = <<EOD

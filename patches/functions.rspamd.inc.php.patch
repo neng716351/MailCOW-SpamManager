@@ -1,5 +1,5 @@
 diff --git a/data/web/inc/functions.rspamd.inc.php b/data/web/inc/functions.rspamd.inc.php
-index c2444d99..02cf11f6 100644
+index c2444d99d..02cf11f6a 100644
 --- a/data/web/inc/functions.rspamd.inc.php
 +++ b/data/web/inc/functions.rspamd.inc.php
 @@ -1,8 +1,27 @@

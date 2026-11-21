@@ -1,0 +1,5 @@
+# Link-domain denylist (rule GLOBAL_URL_BL, +2050 = reject).
+# One registrable domain per line, e.g.  example.com
+# multimap's url/tld filter reduces every link in a message to its registrable
+# domain, so one entry also covers all of that domain's subdomains.
+# No scheme (http://), no path, no wildcards. Edit from Spam Manager > 全域名單.
