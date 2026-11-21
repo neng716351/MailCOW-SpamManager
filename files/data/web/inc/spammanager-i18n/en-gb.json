@@ -1025,6 +1025,9 @@
 "設定格式不正確": "Invalid settings format",
 "開放的國家 IP 資料量過少，為避免把所有人擋在外面，拒絕套用": "The allowed countries have too little IP data; refusing to apply so nobody is locked out",
 "例如：": "e.g. ",
-"例如": "e.g."
+"例如": "e.g.",
+"spammanager.customizations.json 可從外部直接下載，請改用 spammanager.customizations.php。": "spammanager.customizations.json can be downloaded from outside; switch to spammanager.customizations.php.",
+"找不到 spammanager.customizations.php，請參考 .example 建立。": "spammanager.customizations.php not found; create it from the .example file.",
+"spammanager.customizations.php 格式不正確。": "spammanager.customizations.php is not valid."
 }
 }

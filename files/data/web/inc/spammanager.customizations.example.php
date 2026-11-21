@@ -1,3 +1,9 @@
+<?php
+// Spam Manager: local-customisation checklist. Copy to spammanager.customizations.php
+// and edit the JSON below for your deployment. Never commit the real file.
+// Kept as .php so a direct web request executes it and returns nothing (a .json under
+// /inc/ would be served to anyone).
+return json_decode(<<<'JSON'
 {
   "_comment": "Site-specific checklist for the Spam Manager 'local customizations' panel. Not published: keep deployment details out of the public extension repo. Paths are as seen from the php-fpm container.",
   "checks": [
@@ -110,3 +116,4 @@
     "/dynmaps/alias-spamlevels.json"
   ]
 }
+JSON, true);

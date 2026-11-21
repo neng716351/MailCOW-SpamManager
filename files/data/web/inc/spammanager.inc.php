@@ -199,12 +199,22 @@ function sm_customizations(): array {
   // Live check that this deployment's local customizations are still in place. update.sh
   // runs `git merge -X theirs`, so a tracked file we modified can be reverted whenever
   // upstream touches the same lines. The checklist itself is deployment-specific and lives
-  // in spammanager.customizations.json (see the .example file) so this code stays generic.
-  $manifest = __DIR__ . '/spammanager.customizations.json';
-  if (!is_readable($manifest)) return [['name'=>'自訂設定清單','status'=>'unknown','detail'=>'找不到 spammanager.customizations.json，請參考 .example 建立。']];
-  $cfg = json_decode((string)file_get_contents($manifest), true);
-  if (!is_array($cfg)) return [['name'=>'自訂設定清單','status'=>'unknown','detail'=>'spammanager.customizations.json 格式不正確。']];
-  $out = [];
+  // in spammanager.customizations.php (see the .example file) so this code stays generic.
+  // PHP, not JSON: Mailcow serves /inc/ to anyone, and a .json there is downloadable as-is,
+  // while a .php is executed and returns nothing. The file still holds plain JSON.
+  $manifest = __DIR__ . '/spammanager.customizations.php';
+  $legacy = __DIR__ . '/spammanager.customizations.json';
+  $notice = [];
+  if (is_readable($manifest)) {
+    $cfg = include $manifest;
+  } elseif (is_readable($legacy)) {
+    $cfg = json_decode((string)file_get_contents($legacy), true);
+    $notice[] = ['name'=>'自訂設定清單','status'=>'missing','detail'=>'spammanager.customizations.json 可從外部直接下載，請改用 spammanager.customizations.php。'];
+  } else {
+    return [['name'=>'自訂設定清單','status'=>'unknown','detail'=>'找不到 spammanager.customizations.php，請參考 .example 建立。']];
+  }
+  if (!is_array($cfg)) return [['name'=>'自訂設定清單','status'=>'unknown','detail'=>'spammanager.customizations.php 格式不正確。']];
+  $out = $notice;
   foreach (($cfg['checks'] ?? []) as $c) {
     $name = (string)($c['name'] ?? '?'); $path = (string)($c['path'] ?? '');
     if ($path === '' || !is_readable($path)) { $out[] = ['name'=>$name,'status'=>'unknown','detail'=>'無法讀取（請確認掛載）：'.$path]; continue; }

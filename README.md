@@ -79,8 +79,8 @@ Mailcow 管理介面的 SpamManager 擴充功能，提供繁體中文的垃圾�
 
    - 參考 `docker-compose.override.yml.example` 設定 php-fpm 的唯讀掛載，
      並以 `docker compose up -d --no-deps php-fpm-mailcow` 套用。
-   - 將 `files/data/web/inc/spammanager.customizations.example.json` 複製為
-     `spammanager.customizations.json` 並依你的部署調整。該檔描述你的部署細節，請勿提交至公開 repo。
+   - 將 `files/data/web/inc/spammanager.customizations.example.php` 複製為
+     `spammanager.customizations.php` 並依你的部署調整。該檔描述你的部署細節，請勿提交至公開 repo。
 
 7. 確認檔案擁有者與權限沿用 Mailcow 原設定，然後重新載入 Twig 快取並重啟 `php-fpm-mailcow`，讓 OPcache 載入新程式。
 8. 以 Mailcow 管理員登入並開啟 `/admin/SpamManager`。先讀取設定、檢查記錄，再進行任何寫入。
@@ -206,6 +206,12 @@ php -l files/data/web/inc/impersonation.inc.php
 ## 版本紀錄
 
 版號採語意化版本（SemVer）。目前版本見 `VERSION`。
+
+### v2.1.1
+
+- 自訂設定檢查清單改存成 `spammanager.customizations.php`（內容仍是 JSON）。Mailcow 的 `/inc/` 目錄可以從外部直接存取，舊的 `.json` 會被原樣下載，透露部署細節；`.php` 只會被執行，不會輸出內容。舊的 `.json` 仍可讀取，但「設定驗證」頁會提示改用新格式。
+
+升級：把原本的 `spammanager.customizations.json` 內容貼進 `spammanager.customizations.example.php` 的 JSON 區塊，另存為 `spammanager.customizations.php`，再刪除舊的 `.json`。
 
 ### v2.1.0
 
