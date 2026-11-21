@@ -31,6 +31,10 @@ function sm_install_domain(): string {
 }
 }
 
+// Han ideographs only. Not \p{Han}: PCRE2 counts punctuation such as U+3001 (、) as Han
+// through script extensions, which made every text containing 、 look like mail data.
+// Same ranges as spammanager.i18n.js.
+const SM_I18N_HAN = '[\x{3400}-\x{9fff}\x{f900}-\x{faff}]';
 const SM_I18N_DIR = __DIR__ . '/spammanager-i18n';
 const SM_I18N_SOURCE = 'zh-tw';
 
@@ -39,6 +43,8 @@ function sm_i18n_locale(): string {
   if (!preg_match('/^[a-z]{2}-[a-z]{2}$/', $l)) $l = 'en-gb';
   if ($l === SM_I18N_SOURCE) return $l;
   if (is_file(SM_I18N_DIR . "/$l.json")) return $l;
+  // No file for this language. Any Chinese reads the source (Traditional) better than English.
+  if (str_starts_with($l, 'zh-')) return SM_I18N_SOURCE;
   return 'en-gb';
 }
 
@@ -84,7 +90,7 @@ function sm_i18n_text(string $s): string {
     foreach ($tpl as &$list) usort($list, fn($a, $b) => $b['len'] <=> $a['len']);
     unset($list);
   }
-  if (!$strings || !preg_match('/\p{Han}/u', $s)) return $s;
+  if (!$strings || !preg_match('/' . SM_I18N_HAN . '/u', $s)) return $s;
   $trim = trim($s);
   if (isset($strings[$trim])) return str_replace($trim, $strings[$trim], $s);
   $out = ''; $o = 0; $len = strlen($s);
@@ -101,7 +107,7 @@ function sm_i18n_text(string $s): string {
       if (substr_compare($s, $k, $o, strlen($k)) === 0) { $out .= $strings[$k]; $o += strlen($k); $hit = true; break; }
     }
     if ($hit) continue;
-    if (preg_match('/\p{Han}/u', $c)) return $s;           // not ours: leave the whole text alone
+    if (preg_match('/' . SM_I18N_HAN . '/u', $c)) return $s;           // not ours: leave the whole text alone
     $out .= (!$cjk && isset(SM_I18N_PUNCT[$c])) ? SM_I18N_PUNCT[$c] : $c;
     $o += strlen($c);
   }
@@ -110,6 +116,7 @@ function sm_i18n_text(string $s): string {
   preg_match('/^\s*/u', $s, $l); preg_match('/\s*$/u', $s, $r);
   $out = trim(preg_replace('/ {2,}/', ' ', $out));
   if (!$cjk) $out = preg_replace(['/ +([)\],.;:!?])/u', "/ 's /u", '/\( +/u'], ['$1', "'s ", '('], $out);
+  else $out = preg_replace(['/([「（『]) +/u', '/ +([」）』])/u'], ['$1', '$1'], $out);
   return $l[0] . $out . $r[0];
 }
 
@@ -118,7 +125,7 @@ function sm_i18n_text(string $s): string {
  * itself) is never touched.
  */
 function sm_i18n_html(string $html): string {
-  if (sm_i18n_locale() === SM_I18N_SOURCE || !preg_match('/\p{Han}/u', $html)) return $html;
+  if (sm_i18n_locale() === SM_I18N_SOURCE || !preg_match('/' . SM_I18N_HAN . '/u', $html)) return $html;
   $doc = new DOMDocument();
   $prev = libxml_use_internal_errors(true);
   $ok = $doc->loadHTML('<?xml encoding="utf-8"?>' . $html, LIBXML_NOERROR | LIBXML_NOWARNING);

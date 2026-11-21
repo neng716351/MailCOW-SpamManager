@@ -193,7 +193,9 @@ Mailcow netfilter 預設「60 秒內失敗 5 次才封鎖」。低速暴力破�
 ## 7.5 多國語言
 
 - 介面以**繁體中文為原文**，原文就是翻譯的鍵值。語言檔：`data/web/inc/spammanager-i18n/<mailcow 語言代碼>.json`，例如 `en-gb.json`。
-- 語言依 mailcow 的 `$_SESSION['mailcow_locale']` 決定；沒有對應語言檔時退回 `en-gb`。
+- 語言依 mailcow 的 `$_SESSION['mailcow_locale']` 決定。目前附 `en-gb`、`ja-jp`；`zh-*` 沒有語言檔時退回繁體中文原文，其他語言退回 `en-gb`。
+- **不要用 PCRE 的 `\p{Han}` 判斷漢字**：PCRE2 依 Unicode 的 Script_Extensions，會把「、」等標點也算成漢字，含「、」的句子就會被當成郵件資料而整句不翻。PHP 和 JS 兩端都用明確範圍 `U+3400–U+9FFF`、`U+F900–U+FAFF`。
+- CJK 語言（`meta.cjk = true`）保留全形標點；非 CJK 語言會把全形標點轉成半形，並清掉片段接合時多出來的空格。
 - **管理頁**：`js/site/spammanager.i18n.js` 在瀏覽器端翻譯，並用 MutationObserver 跟著頁面重繪；`confirm()`／`alert()` 的對話框也會翻譯。
 - **郵件檢視頁**：`inc/spammanager.i18n.inc.php` 的 `sm_i18n_html()` 在伺服器端翻譯，因為這一頁的 CSP 不允許執行 JS。
 - **保護郵件資料**：

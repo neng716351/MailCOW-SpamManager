@@ -78,6 +78,7 @@
     var lead = src.match(/^\s*/)[0], trail = src.match(/\s*$/)[0];
     out = out.replace(/ {2,}/g, ' ').trim();
     if (!cjk) out = out.replace(/ +([)\],.;:!?])/g, '$1').replace(/ 's /g, "'s ").replace(/\( +/g, '(');
+    else out = out.replace(/([「（『]) +/g, '$1').replace(/ +([」）』])/g, '$1');
     return lead + out + trail;
   }
   function translateLines(s) { return typeof s === 'string' ? s.split('\n').map(translate).join('\n') : s; }
