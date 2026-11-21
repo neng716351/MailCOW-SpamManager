@@ -199,6 +199,10 @@ php -l files/data/web/inc/impersonation.inc.php
 
 版號採語意化版本（SemVer）。目前版本見 `VERSION`。
 
+### v2.0.1
+
+- 修正網頁「重新開機」實際上不會重開：原本以背景程式等待 60 秒後重開，但它在 systemd oneshot 服務中執行，服務結束時 systemd 會清掉殘留程式，重開機從未發生。改為立即以 `systemctl reboot --no-block` 交給 systemd 執行，失敗時頁面顯示錯誤。
+
 ### v2.0.0
 
 - 全部外部來信留存，被動留存的副本不會進每小時摘要；dovecot 容器沒有 cron，改由主機 crontab 清除過期留存。

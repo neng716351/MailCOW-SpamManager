@@ -904,7 +904,7 @@ function sm_mutate(string $op,array $p): array {
       if(!rename($tmp,$dir.'/host-request.json')){@unlink($tmp);throw new RuntimeException('無法送出主機維護請求。');}
       return ['message'=>$act==='apply'
         ?'已送出主機更新請求。容器執行環境會重啟，郵件服務短暫中斷，完成後此頁會顯示結果。'
-        :'已送出重開機請求。主機會在約 1 分鐘後重開，開機後容器會自動回復。'];
+        :'已送出重開機請求。主機驗證密碼後會立即重開，約 2～3 分鐘後恢復，此頁會暫時無法連線。'];
     case 'nas_setup_request':
       // The SMB password passes through here once, by explicit choice, so that the NAS can
       // be configured from the page. It is written straight to a 0600 request file that the

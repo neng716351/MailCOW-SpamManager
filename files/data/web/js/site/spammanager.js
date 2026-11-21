@@ -1149,7 +1149,7 @@
       submitHost('apply','確定現在套用主機更新？\n\n會升級 docker.io／containerd／runc，容器執行環境將重啟，郵件收發短暫中斷。\n請避開尖峰時段。');
     });
     el('sm-host-reboot-btn').addEventListener('click',function(){
-      submitHost('reboot','確定現在重新開機？\n\n整台主機會在約 1 分鐘後重開，期間郵件服務完全中斷。\n開機後容器會自動回復（重啟策略為 always）。');
+      submitHost('reboot','確定現在重新開機？\n\n整台主機會立即重開，期間郵件服務完全中斷（約 2～3 分鐘）。\n開機後容器會自動回復（重啟策略為 always）。');
     });
     el('sm-nas-refresh').addEventListener('click',function(){loadNas();});
     el('sm-restore-refresh').addEventListener('click',function(){loadRestore();loadNas();});

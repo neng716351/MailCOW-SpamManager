@@ -186,18 +186,21 @@ case "$ACTION" in
   reboot)
     collect
     log "已收到重開機指示"
-    notify "【主機即將重開機】" "mailcow 主機將在 1 分鐘內重開機以讓更新生效。
+    notify "【主機重開機】" "mailcow 主機正在重開機以讓更新生效。
 
 執行中核心：${KERNEL_RUN}
 已安裝核心：${KERNEL_NEW}
 待生效套件：${REBOOT_PKGS:-（未列出）}
 
 重開期間郵件服務中斷，容器設定為 always 重啟，開機後會自動回復。"
-    set_status "rebooting" "主機將在 1 分鐘內重開機…"
-    logger -t mailcow-host-update "reboot requested; scheduling in 1 minute"
-    # Give the page and the notification mail time to go out before the box goes down.
-    (sleep 60; systemctl reboot) >/dev/null 2>&1 &
-    log "已排定 1 分鐘後重開機"
+    set_status "rebooting" "主機正在重開機…"
+    logger -t mailcow-host-update "reboot requested; rebooting now"
+    log "立即重開機"
+    # Immediate, by request (2026-11-21). --no-block queues the reboot job with systemd
+    # and returns, so this oneshot unit finishes cleanly instead of being torn down
+    # mid-run. (A backgrounded "sleep; reboot" never worked here: systemd kills leftover
+    # processes in the unit's cgroup when the unit ends.)
+    systemctl reboot --no-block || { set_status "error" "無法重開機，請在主機執行 sudo reboot"; exit 1; }
     ;;
 esac
 exit 0
