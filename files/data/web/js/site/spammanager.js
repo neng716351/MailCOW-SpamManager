@@ -2,7 +2,10 @@
   'use strict';
   var api = '/admin/SpamManagerApi', busy = false;
   var SM = window.SpamManager = {state: null};
+  var SM_I = window.SM_I18N || {lang:'zh-tw',zh:true,intl:'zh-TW',t:function(s){return s;}}, SM_INTL = SM_I.intl, SM_ZH = SM_I.zh;
   function el(id) { return document.getElementById(id); }
+  // Mail data (senders, subjects): never translated, even if it happens to equal a UI word.
+  function raw(n) { n.setAttribute('data-sm-raw', ''); return n; }
   function node(tag, text, cls) { var n = document.createElement(tag); if (text !== undefined) n.textContent = text; if (cls) n.className = cls; return n; }
   function message(text, danger) { var n = el('sm-notice'); if (!n) return; n.textContent = text; n.className = 'small mb-2 ' + (danger ? 'text-danger' : 'text-success'); }
   function syncToken(data) {
@@ -30,6 +33,7 @@
   var symbolNames = {'R_SPF_FAIL':'SPF 驗證失敗', 'R_DKIM_REJECT':'DKIM 驗證失敗', 'BAYES_SPAM':'貝氏分類：垃圾郵件', 'BAYES_HAM':'貝氏分類：正常郵件', 'CLAM_VIRUS':'病毒掃描命中', 'DMARC_POLICY_REJECT':'DMARC 拒收政策', 'FUZZY_DENIED':'模糊指紋命中', 'R_DKIM_ALLOW':'DKIM 驗證成功', 'R_SPF_ALLOW':'SPF 驗證成功'};
   var descriptionTranslations = window.SpamManagerDescriptions || {};
   function symbolDescription(description) {
+    if (!SM_ZH && description) return description;
     if (Object.prototype.hasOwnProperty.call(descriptionTranslations, description)) return descriptionTranslations[description];
     var heinlein = /^Heinlein Support Spamschutz (Body|Header)-(\d+)(?:\s+(.+))?$/.exec(description || '');
     if (heinlein) {
@@ -197,7 +201,7 @@
   }
   function renderHistory() {
     var term=el('sm-history-search').value.toLowerCase(),tbody=el('sm-history-rows');tbody.replaceChildren();
-    historyRows.filter(function(r){return [r.sender_mime,r.sender_smtp,r.subject,(r.rcpt_mime||[]).join(' ')].join(' ').toLowerCase().indexOf(term)>=0;}).forEach(function(r){var tr=node('tr'),stamp=r.unix_time||r.timestamp||r.time;tr.appendChild(node('td',stamp?new Date(Number(stamp)*1000).toLocaleString('zh-TW',{hour12:false}):'—','small'));var td=node('td');td.appendChild(node('div',r.sender_mime||r.sender_smtp||'','small'));var subject=node('div',r.subject||'（無主旨）','small text-muted sm-subject');subject.title=r.subject||'';td.appendChild(subject);tr.appendChild(td);tr.appendChild(node('td',Number(r.score).toFixed(2)));tr.appendChild(node('td',actionLabels[r.action]||r.action,'small'));td=node('td');var b=node('button','查看','btn btn-sm btn-outline-secondary');b.type='button';b.addEventListener('click',function(){historyDetail(r);});td.appendChild(b);tr.appendChild(td);tbody.appendChild(tr);});
+    historyRows.filter(function(r){return [r.sender_mime,r.sender_smtp,r.subject,(r.rcpt_mime||[]).join(' ')].join(' ').toLowerCase().indexOf(term)>=0;}).forEach(function(r){var tr=node('tr'),stamp=r.unix_time||r.timestamp||r.time;tr.appendChild(node('td',stamp?new Date(Number(stamp)*1000).toLocaleString(SM_INTL,{hour12:false}):'—','small'));var td=node('td');td.appendChild(raw(node('div',r.sender_mime||r.sender_smtp||'','small')));var subject=r.subject?raw(raw(node('div',r.subject,'small text-muted sm-subject'))):node('div','（無主旨）','small text-muted sm-subject');subject.title=r.subject||'';td.appendChild(subject);tr.appendChild(td);tr.appendChild(node('td',Number(r.score).toFixed(2)));tr.appendChild(node('td',actionLabels[r.action]||r.action,'small'));td=node('td');var b=node('button','查看','btn btn-sm btn-outline-secondary');b.type='button';b.addEventListener('click',function(){historyDetail(r);});td.appendChild(b);tr.appendChild(td);tbody.appendChild(tr);});
   }
   function loadHistory() {
     el('sm-history-status').textContent='正在讀取 Rspamd 掃描紀錄…';
@@ -229,12 +233,12 @@
     if(!rows.length){var tr=node('tr'),td=node('td',pool.length?'沒有符合搜尋的郵件。':(rejectedRows.length?'這個動作沒有留存的郵件，可改選「全部」。':'目前沒有被留存的郵件。'));td.colSpan=5;td.className='small text-muted';tr.appendChild(td);tbody.appendChild(tr);return;}
     rows.forEach(function(r){
       var tr=node('tr'),action=r.action||'';
-      tr.appendChild(node('td',r.created?new Date(r.created*1000).toLocaleString('zh-TW',{hour12:false}):'—','small'));
+      tr.appendChild(node('td',r.created?new Date(r.created*1000).toLocaleString(SM_INTL,{hour12:false}):'—','small'));
       var actTd=node('td',REJECTED_ACTION_LABELS[action]||action||'—','small '+(action==='reject'?'text-danger':(action==='add header'?'sm-act-tagged':(rejectedPassive(action)?'text-muted':'text-warning'))));
       if(action==='add header'){actTd.style.setProperty('color','#0d6efd','important');actTd.style.setProperty('font-weight','700','important');}
       tr.appendChild(actTd);
-      var td=node('td');td.appendChild(node('div',(r.sender||'（空寄件者）')+' → '+(r.rcpt||''),'small'));
-      var subject=node('div',r.subject||'（無主旨）','small text-muted sm-subject');subject.title=r.subject||'';td.appendChild(subject);
+      var td=node('td');td.appendChild(raw(node('div',(r.sender||'（空寄件者）')+' → '+(r.rcpt||''),'small')));
+      var subject=r.subject?raw(raw(node('div',r.subject,'small text-muted sm-subject'))):node('div','（無主旨）','small text-muted sm-subject');subject.title=r.subject||'';td.appendChild(subject);
       if(r.virus){var vb=node('span','病毒命中','badge bg-danger');td.appendChild(vb);}
       tr.appendChild(td);
       tr.appendChild(node('td',Number(r.score).toFixed(2)));
@@ -439,7 +443,7 @@
   function renderUpdate(d){
     var host=el('sm-update-status'),states={idle:['尚未執行過更新','text-muted'],running:['更新進行中','text-warning'],done:['上次更新完成','text-success'],error:['上次更新有問題','text-danger'],rejected:['上次請求被拒絕','text-danger']};
     if(!d.available){host.textContent=d.message||'尚未啟用網頁更新。';host.className='small text-muted mb-2';el('sm-update-form').querySelector('button').disabled=true;el('sm-update-pass').disabled=true;setOverview('sm-ov-update',host.textContent);return;}
-    var s=states[d.state]||states.idle,when=d.updated?('（'+new Date(d.updated*1000).toLocaleString('zh-TW',{hour12:false})+'）'):'';
+    var s=states[d.state]||states.idle,when=d.updated?('（'+new Date(d.updated*1000).toLocaleString(SM_INTL,{hour12:false})+'）'):'';
     host.textContent=s[0]+when+(d.message?('：'+d.message):'');
     host.className='small mb-2 fw-semibold '+s[1];
     var busy=d.state==='running'||d.pending;
@@ -449,18 +453,22 @@
     el('sm-update-progress').hidden=!hasRun;
     // steps
     var ol=el('sm-update-steps');ol.replaceChildren();
+    var v=d.verify||null,vNewer=!!(v&&v.verified&&v.state==='done'&&(!d.updated||v.verified>=d.updated)),vOk=vNewer&&v.result==='ok';
     steps.forEach(function(st){
-      var li=node('li','',st.state);
+      var resolved=vOk&&st.state==='warn';
+      var li=node('li','',resolved?'resolved':st.state);
       li.appendChild(node('span',UPDATE_STEP_MARK[st.state]||'○','sm-step-mark'));
       li.appendChild(document.createTextNode(st.n+'. '+st.title));
       li.appendChild(node('span',(UPDATE_STEP_STATE[st.state]||'')+(st.detail?'：'+st.detail:''),'sm-step-detail'));
+      if(resolved){li.firstChild.textContent='✓';li.appendChild(node('span','已於 '+new Date(v.verified*1000).toLocaleString(SM_INTL,{hour12:false})+' 重新驗證通過','sm-step-fixed'));}
       li.title=(UPDATE_STEP_STATE[st.state]||'')+(st.detail?'：'+st.detail:'');
       ol.appendChild(li);
     });
     // problems
     var pb=el('sm-update-problems');pb.replaceChildren();
     if((d.problems||[]).length){
-      pb.appendChild(node('strong','這次更新發現 '+d.problems.length+' 項問題：'));
+      pb.className='alert small py-2 px-3 mb-2 '+(vOk?'alert-secondary':'alert-danger');
+      pb.appendChild(node('strong','這次更新發現 '+d.problems.length+' 項問題'+(vOk?'（之後已重新驗證，全部解決）：':'：')));
       var ul=node('ul','','mb-0 ps-3');d.problems.forEach(function(p){ul.appendChild(node('li',p));});pb.appendChild(ul);pb.hidden=false;
     }else pb.hidden=true;
     // version + elapsed
@@ -475,16 +483,37 @@
     updateLogRaw=d.log||'';
     el('sm-update-logmeta').textContent=updateLogRaw?('共 '+updateLogRaw.split('\n').length+' 行'+(d.log_truncated?('（較早的 '+d.log_truncated+' 行未顯示）'):'')+(busy?'，每 5 秒更新':'')):'';
     renderUpdateLog();
+    renderVerify(v,vNewer);
     // overview
-    var ovText=s[0]+when+(d.version_after?('，版本 '+d.version_after):'')+((d.problems||[]).length?('，'+d.problems.length+' 項問題'):'');
-    setOverview('sm-ov-update',ovText,busy?'text-warning':((d.problems||[]).length||d.state==='error'?'text-danger':'text-muted'));
+    var probs=(d.problems||[]).length,ovText=s[0]+when+(d.version_after?('，版本 '+d.version_after):'')+(probs?('，'+probs+' 項問題'):'');
+    if(vOk&&probs)ovText+='（已重新驗證，全部解決）';
+    else if(vNewer&&v.result==='problems')ovText+='；重新驗證仍有 '+v.problems.length+' 項問題';
+    var bad=vNewer?(v.result==='problems'):(probs||d.state==='error');
+    setOverview('sm-ov-update',ovText,busy?'text-warning':(bad?'text-danger':'text-muted'));
+    if(v&&v.state==='running'&&!updatePolling)pollUpdate();
     if(busy&&!updatePolling)pollUpdate();
+  }
+  function renderVerify(v,newer){
+    var box=el('sm-update-verify');if(!box)return;
+    if(!v){box.hidden=true;return;}
+    box.hidden=false;
+    var when=v.verified?new Date(v.verified*1000).toLocaleString(SM_INTL,{hour12:false}):'';
+    var head=el('sm-update-verify-head'),list=el('sm-update-verify-list');list.replaceChildren();
+    if(v.state==='running'){head.textContent='重新驗證進行中…';box.className='small border rounded py-2 px-3 mb-2 border-warning';}
+    else if(v.result==='ok'){head.textContent='重新驗證（'+when+'）：全部通過'+(newer?'':'（早於上次更新）');box.className='small border rounded py-2 px-3 mb-2 border-success text-success-emphasis';}
+    else{head.textContent='重新驗證（'+when+'）：'+(v.problems||[]).length+' 項問題';box.className='small border rounded py-2 px-3 mb-2 border-danger text-danger-emphasis';}
+    (v.checks||[]).forEach(function(c){list.appendChild(node('li',(c.ok?'✓ ':'✗ ')+c.name+'：'+c.detail,c.ok?'':'fw-semibold'));});
+    el('sm-update-verify-log').textContent=v.log||'';
+  }
+  function submitVerify(){
+    var b=el('sm-update-verify-btn');
+    save('update_verify_request',{},b,function(){var box=el('sm-update-verify');box.hidden=false;el('sm-update-verify-head').textContent='已送出重新驗證，等待主機開始…';if(!updatePolling)pollUpdate();});
   }
   function updateElapsed(busy,updated){
     var n=el('sm-update-elapsed');if(!n)return;
     if(!updateStartedAt){n.textContent='';return;}
     var end=busy?Date.now():(updated?updated*1000:Date.now()),sec=Math.max(0,Math.round((end-updateStartedAt.getTime())/1000));
-    n.textContent=(busy?'已執行 ':'耗時 ')+Math.floor(sec/60)+' 分 '+(sec%60)+' 秒（開始於 '+updateStartedAt.toLocaleTimeString('zh-TW',{hour12:false})+'）';
+    n.textContent=(busy?'已執行 ':'耗時 ')+Math.floor(sec/60)+' 分 '+(sec%60)+' 秒（開始於 '+updateStartedAt.toLocaleTimeString(SM_INTL,{hour12:false})+'）';
   }
   function loadUpdate(){
     return $.ajax({url:api,type:'GET',dataType:'json',timeout:15000,data:{op:'update_status'}}).done(function(r){renderUpdate(r.data||{});});
@@ -498,7 +527,7 @@
       $.ajax({url:api,type:'GET',dataType:'json',timeout:10000,data:{op:'update_status'}})
         .done(function(r){
           var d=r.data||{};renderUpdate(d);
-          if(d.state==='running'||d.pending){setTimeout(tick,5000);}
+          if(d.state==='running'||d.pending||(d.verify&&d.verify.state==='running')){setTimeout(tick,3000);}
           else{updatePolling=false;loadCustomizations();}
         })
         .fail(function(){
@@ -510,10 +539,10 @@
   }
   // ---- login-region allowlist ------------------------------------------------
   var geoState=null,geoDraft=null,geoDirty=false,geoPolling=false;
-  var geoNames=null;try{geoNames=new Intl.DisplayNames(['zh-TW'],{type:'region'});}catch(e){}
+  var geoNames=null;try{geoNames=new Intl.DisplayNames([SM_INTL,'en'],{type:'region'});}catch(e){}
   var GEO_SHORT={HK:'香港',MO:'澳門'};
-  function ccName(cc){var n=GEO_SHORT[cc]||'';try{if(!n)n=geoNames?geoNames.of(cc):'';}catch(e){}return (n&&n!==cc)?(n+'（'+cc+'）'):cc;}
-  function geoFmt(ts){return ts?new Date(ts*1000).toLocaleString('zh-TW',{hour12:false}):'—';}
+  function ccName(cc){var n=(SM_ZH&&GEO_SHORT[cc])||'';try{if(!n)n=geoNames?geoNames.of(cc):'';}catch(e){}return (n&&n!==cc)?(n+(SM_ZH?'（'+cc+'）':' ('+cc+')')):cc;}
+  function geoFmt(ts){return ts?new Date(ts*1000).toLocaleString(SM_INTL,{hour12:false}):'—';}
   var GEO_QUICK=['JP','CN','HK','MO','US','KR','SG','VN','TH','MY','PH','ID','DE','GB'];
   // Everyday names people actually type that differ from the ICU zh-TW names.
   var GEO_ALIAS={'韓國':'KR','韩国':'KR','南韓':'KR','北韓':'KP','朝鮮':'KP','大陸':'CN','中國大陸':'CN','內地':'CN','台灣':'TW','臺灣':'TW','英國':'GB','美國':'US','日':'JP','港':'HK','澳':'MO','星':'SG','星加坡':'SG','星馬':'MY','大馬':'MY','荷蘭':'NL','紐西蘭':'NZ','杜拜':'AE','阿聯':'AE','usa':'US','uk':'GB','korea':'KR','south korea':'KR','hongkong':'HK','hong kong':'HK','macau':'MO','taiwan':'TW','vietnam':'VN','dubai':'AE','uae':'AE'};
@@ -524,7 +553,7 @@
     return list.map(function(c){return {cc:c,name:ccName(c)};}).sort(function(a,b){
       var qa=GEO_QUICK.indexOf(a.cc),qb=GEO_QUICK.indexOf(b.cc);
       if(qa>=0||qb>=0)return (qa<0?99:qa)-(qb<0?99:qb);
-      return a.name.localeCompare(b.name,'zh-Hant');});
+      return a.name.localeCompare(b.name,SM_INTL);});
   }
   function geoCountryOptions(){
     // A <datalist> behind a text input, not a <select>: typing 「日本」 or 「JP」 filters it,
@@ -532,7 +561,7 @@
     var dl=el('sm-geo-cc-list');if(!dl)return;dl.replaceChildren();
     geoCountryList().forEach(function(x){var o=node('option');o.value=x.name;dl.appendChild(o);});
     var q=el('sm-geo-quick');if(q&&q.children.length<=1){GEO_QUICK.forEach(function(cc){if(((geoState&&geoState.available_countries)||[]).indexOf(cc)<0)return;
-      var b=node('button',ccName(cc).replace(/（.*）$/,''),'btn btn-sm btn-outline-secondary py-0');b.type='button';b.title=ccName(cc);
+      var b=node('button',ccName(cc).replace(/\s*[（(][A-Z]{2}[）)]$/,''),'btn btn-sm btn-outline-secondary py-0');b.type='button';b.title=ccName(cc);
       b.addEventListener('click',function(){el('sm-geo-temp-cc').value=ccName(cc);geoHint('sm-geo-temp-cc','sm-geo-temp-hint');});q.appendChild(b);});}
   }
   // Resolve what the admin typed: 「日本（JP）」 from the list, a bare code 「jp」, or a name
@@ -543,7 +572,7 @@
     var code=m?(m[1]||m[2]).toUpperCase():(/^[A-Za-z]{2}$/.test(text)?text.toUpperCase():'');
     if(code){var hit=list.filter(function(x){return x.cc===code;});return hit.length?{cc:code}:{err:'找不到代碼 '+code+' 的國家'};}
     var alias=GEO_ALIAS[text]||GEO_ALIAS[text.toLowerCase()];if(alias&&list.some(function(x){return x.cc===alias;}))return {cc:alias};
-    var low=text.toLowerCase(),exact=list.filter(function(x){return x.name.replace(/（.*）$/,'').toLowerCase()===low||geoEn(x.cc).toLowerCase()===low;});
+    var low=text.toLowerCase(),exact=list.filter(function(x){return x.name.replace(/\s*[（(][A-Z]{2}[）)]$/,'').toLowerCase()===low||geoEn(x.cc).toLowerCase()===low;});
     if(exact.length===1)return {cc:exact[0].cc};
     var part=list.filter(function(x){return x.name.toLowerCase().indexOf(low)>=0;});
     if(part.length===1)return {cc:part[0].cc};
@@ -630,7 +659,7 @@
       return;
     }
     var s=states[d.state]||states.idle;
-    var when=d.updated?('（'+new Date(d.updated*1000).toLocaleString('zh-TW',{hour12:false})+'）'):'';
+    var when=d.updated?('（'+new Date(d.updated*1000).toLocaleString(SM_INTL,{hour12:false})+'）'):'';
     host.textContent=s[0]+when+(d.message?('：'+d.message):'');
     host.className='small mb-2 '+s[1];
     el('sm-nas-meta').hidden=false;
@@ -695,7 +724,7 @@
     var form=el('sm-restore-form'),btn=form.querySelector('button');
     if(!d.available){host.textContent=d.message||'尚未啟用網頁還原。';host.className='small text-warning mb-2';btn.disabled=true;return;}
     var s=states[d.state]||states.idle;
-    var when=d.updated?('（'+new Date(d.updated*1000).toLocaleString('zh-TW',{hour12:false})+'）'):'';
+    var when=d.updated?('（'+new Date(d.updated*1000).toLocaleString(SM_INTL,{hour12:false})+'）'):'';
     host.textContent=s[0]+when+(d.message?('：'+d.message):'')+(d.snapshot?('　還原前快照：'+d.snapshot):'');
     host.className='small mb-2 '+s[1];
     var busy=d.state==='running'||d.pending;
@@ -770,7 +799,7 @@
       return;
     }
     var s=states[d.state]||states.idle;
-    var when=d.updated?('（'+new Date(d.updated*1000).toLocaleString('zh-TW',{hour12:false})+'）'):'';
+    var when=d.updated?('（'+new Date(d.updated*1000).toLocaleString(SM_INTL,{hour12:false})+'）'):'';
     host.textContent=s[0]+when+(d.message?('：'+d.message):'');
     host.className='small mb-2 '+s[1];
     el('sm-host-counts').hidden=false;
@@ -870,7 +899,7 @@
       host.className='small text-warning mb-2';
     }else{
       var s=states[d.state]||states.idle;
-      var when=d.updated?('（'+new Date(d.updated*1000).toLocaleString('zh-TW',{hour12:false})+'）'):'';
+      var when=d.updated?('（'+new Date(d.updated*1000).toLocaleString(SM_INTL,{hour12:false})+'）'):'';
       host.textContent=s[0]+when+(d.message?('：'+d.message):'');
       host.className='small mb-2 '+s[1];
     }
@@ -929,9 +958,9 @@
     if(!rows.length){var tr=node('tr'),td=node('td',outboundRows.length?'沒有符合搜尋的郵件。':'目前沒有被攔截的外寄郵件。');td.colSpan=4;td.className='small text-muted';tr.appendChild(td);tbody.appendChild(tr);return;}
     rows.forEach(function(r){
       var tr=node('tr');
-      tr.appendChild(node('td',r.created?new Date(r.created*1000).toLocaleString('zh-TW',{hour12:false}):'—','small'));
-      var td=node('td');td.appendChild(node('div',(r.sender||'（空寄件者）')+' → '+(r.rcpt||''),'small'));
-      var subject=node('div',r.subject||'（無主旨）','small text-muted sm-subject');subject.title=r.subject||'';td.appendChild(subject);
+      tr.appendChild(node('td',r.created?new Date(r.created*1000).toLocaleString(SM_INTL,{hour12:false}):'—','small'));
+      var td=node('td');td.appendChild(raw(node('div',(r.sender||'（空寄件者）')+' → '+(r.rcpt||''),'small')));
+      var subject=r.subject?raw(raw(node('div',r.subject,'small text-muted sm-subject'))):node('div','（無主旨）','small text-muted sm-subject');subject.title=r.subject||'';td.appendChild(subject);
       if(r.virus){td.appendChild(node('span','病毒命中','badge bg-danger'));}
       tr.appendChild(td);
       tr.appendChild(node('td',Number(r.score).toFixed(2)));
@@ -1079,6 +1108,7 @@
     el('sm-outbound-search').addEventListener('input',renderOutbound);el('sm-outbound-refresh').addEventListener('click',loadOutbound);
     el('sm-custom-refresh').addEventListener('click',loadCustomizations);
     el('sm-update-refresh').addEventListener('click',function(){loadUpdate();});
+    el('sm-update-verify-btn').addEventListener('click',submitVerify);
     el('sm-geo-refresh').addEventListener('click',function(){geoDirty=false;loadGeo();});
     el('sm-geo-enabled').addEventListener('change',function(){if(geoDraft){geoDraft.enabled=this.checked;geoMarkDirty();}});
     el('sm-geo-add').addEventListener('click',function(){if(!geoDraft)return;var r=geoResolve(el('sm-geo-add-cc').value);

@@ -25,6 +25,9 @@ Mailcow 管理介面的 SpamManager 擴充功能，提供繁體中文的垃圾�
 - **網頁一鍵更新**：快照自訂設定 → 官方 `update.sh` → 重新套用 → 驗證，需另一組更新密碼。
 - **NAS 加密備份與還原**、**主機系統更新**，都由主機端 root 代理程式執行，網頁只送出請求。
 - **登入地區限制**：只有允許的國家可以連登入用的埠（POP3／IMAP／SMTP 寄信／Sieve／HTTPS），25 埠收信不受影響；出差可臨時開放，到期自動關閉。
+- **多國語言**：介面跟著 mailcow 右上角的語言設定切換，附繁體中文（原文）與英文；郵件主旨、寄件者、內文一律不翻譯。
+- **重新驗證**：更新後事後修好的問題，按一下重跑檢查與功能測試，更新頁就會標成「已解決」。
+- **範本化**：不寫死任何網域、帳號或容器名稱；範例信箱依安裝網域產生，容器名稱從 `mailcow.conf` 讀取。
 
 ## 相容性與注意事項
 
@@ -97,7 +100,12 @@ Mailcow 管理介面的 SpamManager 擴充功能，提供繁體中文的垃圾�
 
    `helper-scripts/` 的檔案放到 Mailcow 的 `helper-scripts/`。主機端代理程式都要先有更新密碼，所以 **`setup-updater-agent.sh` 要第一個執行**。
 
-10. **改完 PHP 一定要重啟 php-fpm**：Mailcow 的 opcache 預設不檢查檔案時間，不重啟就會繼續跑舊程式。另外清除 JS 打包快取與 Twig 快取：
+10. **本機專屬設定**（選用，都不要提交到 repo）：
+    - `files/data/web/inc/vars.local.inc.php.example` → Mailcow 的 `data/web/inc/vars.local.inc.php`：語言選單把繁體中文排第一。
+    - `files/data/web/css/build/099-local-overrides.css` → Mailcow 的 `data/web/css/build/`：語言選單太長時可以捲動。
+    - `files/data/web/inc/spammanager.local.php.example`：只有在需要辨識「防冒名表單出現前就建立的舊規則」時才用。
+
+11. **改完 PHP 一定要重啟 php-fpm**：Mailcow 的 opcache 預設不檢查檔案時間，不重啟就會繼續跑舊程式。另外清除 JS 打包快取與 Twig 快取：
 
     ```sh
     docker compose restart php-fpm-mailcow
@@ -198,6 +206,14 @@ php -l files/data/web/inc/impersonation.inc.php
 ## 版本紀錄
 
 版號採語意化版本（SemVer）。目前版本見 `VERSION`。
+
+### v2.1.0
+
+- 多國語言：以繁體中文為原文、原文即鍵值；管理頁在瀏覽器端翻譯，郵件檢視頁在伺服器端翻譯。附英文語言檔（`files/data/web/inc/spammanager-i18n/en-gb.json`）。郵件資料以 `data-sm-raw` 標記，一律不翻。
+- 更新頁新增「重新驗證」（`helper-scripts/mailcow-verify.sh`，經由更新代理程式的 `verify` 動作執行，唯讀、不需要更新密碼）。
+- 範本化：範例信箱依安裝網域產生；主機腳本從 `COMPOSE_PROJECT_NAME` 推算容器名稱；防冒名舊規則改由選用的本機檔 `spammanager.local.php` 提供。
+- 日期、國家名稱依網站語言顯示；國家輸入框支援各語言名稱、英文名稱與兩碼代碼。
+- 新增本機覆寫範例：語言選單排序（`vars.local.inc.php.example`）、語言選單可捲動（`099-local-overrides.css`）。
 
 ### v2.0.1
 

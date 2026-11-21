@@ -1,0 +1,8 @@
+<?php
+// Local mailcow overrides for this host. Gitignored by mailcow, so update.sh keeps it.
+// See vars.inc.php: settings placed here override the defaults and persist.
+
+// Language menu: Traditional Chinese first, the rest in mailcow's own order.
+if (isset($AVAILABLE_LANGUAGES['zh-tw'])) {
+  $AVAILABLE_LANGUAGES = ['zh-tw' => $AVAILABLE_LANGUAGES['zh-tw']] + $AVAILABLE_LANGUAGES;
+}

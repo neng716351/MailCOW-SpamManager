@@ -17,6 +17,10 @@
 set -uo pipefail
 
 MAILCOW_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Container names follow the compose project name, which differs per install; read it
+# from mailcow.conf instead of assuming the default "mailcowdockerized".
+MC_PROJECT="$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' "${MAILCOW_DIR}/mailcow.conf" 2>/dev/null | tail -1 | tr -d '"'"'"'\r ')"
+MC_PROJECT="${MC_PROJECT:-mailcowdockerized}"
 UPDATER_DIR="${MAILCOW_DIR}/data/updater"
 STATUS="${UPDATER_DIR}/host-status.json"
 LOGFILE="${UPDATER_DIR}/host-update.log"
@@ -49,7 +53,7 @@ notify() { # subject, body
   rp="$(grep -E '^REDISPASS=' "${MAILCOW_DIR}/mailcow.conf" 2>/dev/null | cut -d= -f2-)"
   if [[ -n "$rp" ]]; then
     for key in BACKUP_NOTIFY REJECTED_HOLD_NOTIFY; do
-      to="$(docker exec mailcowdockerized-redis-mailcow-1 redis-cli -a "$rp" --no-auth-warning GET "$key" 2>/dev/null | tr -d '\r')"
+      to="$(docker exec ${MC_PROJECT}-redis-mailcow-1 redis-cli -a "$rp" --no-auth-warning GET "$key" 2>/dev/null | tr -d '\r')"
       [[ -n "$to" && "$to" != "(nil)" ]] && break || to=""
     done
   fi
@@ -60,7 +64,7 @@ notify() { # subject, body
     printf 'Subject: =?UTF-8?B?%s?=\n' "$(printf '%s' "$subj" | base64 -w0)"
     printf 'Content-Type: text/plain; charset=UTF-8\nContent-Transfer-Encoding: base64\n\n'
     printf '%s' "$body" | base64 -w0; printf '\n'
-  } | docker exec -i mailcowdockerized-postfix-mailcow-1 sendmail -t -i 2>/dev/null || true
+  } | docker exec -i ${MC_PROJECT}-postfix-mailcow-1 sendmail -t -i 2>/dev/null || true
 }
 
 # --- facts about what is pending ----------------------------------------------------
@@ -150,8 +154,8 @@ case "$ACTION" in
     apt-get "${APT_OPTS[@]}" autoremove >>"$LOGFILE" 2>&1 || log "警告：autoremove 有錯誤"
     log "等待容器回復"
     sleep 20
-    DOWN="$(docker ps -a --filter name=mailcowdockerized --filter status=exited --format '{{.Names}}' | tr '\n' ' ')"
-    UP="$(docker ps --filter name=mailcowdockerized -q | wc -l)"
+    DOWN="$(docker ps -a --filter name=${MC_PROJECT} --filter status=exited --format '{{.Names}}' | tr '\n' ' ')"
+    UP="$(docker ps --filter name=${MC_PROJECT} -q | wc -l)"
     collect
     if [[ -n "$DOWN" ]]; then
       set_status "error" "更新完成但有容器未運行：${DOWN}"

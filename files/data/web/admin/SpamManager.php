@@ -4,6 +4,8 @@ require_once $_SERVER['DOCUMENT_ROOT'] . '/inc/triggers.admin.inc.php';
 protect_route(['admin']);
 require_once $_SERVER['DOCUMENT_ROOT'] . '/inc/header.inc.php';
 $_SESSION['return_to'] = $_SERVER['REQUEST_URI'];
+require_once $_SERVER['DOCUMENT_ROOT'] . '/inc/spammanager.i18n.inc.php';
+$js_minifier->add('/web/js/site/spammanager.i18n.js');
 $js_minifier->add('/web/js/site/spammanager.translations.js');
 $js_minifier->add('/web/js/site/spammanager.js');
 $js_minifier->add('/web/js/site/impersonation.js');
@@ -17,6 +19,8 @@ $template = 'spammanager.twig';
 $template_data = [
   'rsettings' => $rsettings,
   'role' => 'admin',
+  'sm_i18n' => sm_i18n_payload(),
+  'sm_domain' => sm_install_domain(),
   'acl' => $_SESSION['acl'],
   'acl_json' => json_encode($_SESSION['acl']),
   'lang_admin' => json_encode($lang['admin']),

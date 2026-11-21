@@ -10,6 +10,10 @@
 set -uo pipefail
 
 MAILCOW_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Container names follow the compose project name, which differs per install; read it
+# from mailcow.conf instead of assuming the default "mailcowdockerized".
+MC_PROJECT="$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' "${MAILCOW_DIR}/mailcow.conf" 2>/dev/null | tail -1 | tr -d '"'"'"'\r ')"
+MC_PROJECT="${MC_PROJECT:-mailcowdockerized}"
 TS="$(date +%Y%m%d-%H%M%S)"
 SNAP_DIR="${MAILCOW_DIR}/mailcow-local-fixes/pre-update-${TS}"
 LOG="${SNAP_DIR}/update.log"
@@ -111,13 +115,13 @@ python3 -I "$REAPPLY" --apply 2>&1 | tee -a "$LOG"
 REAPPLY_RC=${PIPESTATUS[0]}
 
 say "重啟受影響的服務"
-docker exec mailcowdockerized-php-fpm-mailcow-1 sh -c 'rm -rf /web/templates/cache/*' >/dev/null 2>&1 \
+docker exec ${MC_PROJECT}-php-fpm-mailcow-1 sh -c 'rm -rf /web/templates/cache/*' >/dev/null 2>&1 \
   && info "已清除 Twig 編譯快取" || info "略過 Twig 快取清除（容器尚未就緒）"
 # The JS bundle in php-fpm /tmp can outlive a file change (see 2026-11-17); rebuilt on demand.
-docker exec mailcowdockerized-php-fpm-mailcow-1 sh -c 'rm -f /tmp/*.js' >/dev/null 2>&1 \
+docker exec ${MC_PROJECT}-php-fpm-mailcow-1 sh -c 'rm -f /tmp/*.js' >/dev/null 2>&1 \
   && info "已清除 JS 打包快取" || info "略過 JS 打包快取清除"
 for c in rspamd-mailcow postfix-mailcow php-fpm-mailcow; do
-  if docker restart "mailcowdockerized-${c}-1" >/dev/null 2>&1; then
+  if docker restart "${MC_PROJECT}-${c}-1" >/dev/null 2>&1; then
     info "已重啟 ${c}"
   else
     fail "無法重啟 ${c}，請手動確認"
@@ -128,17 +132,17 @@ done
 say "步驟 5/5：驗證"
 sleep 15
 
-if docker exec mailcowdockerized-rspamd-mailcow-1 rspamadm configtest 2>&1 | tee -a "$LOG" | grep -q "syntax OK"; then
+if docker exec ${MC_PROJECT}-rspamd-mailcow-1 rspamadm configtest 2>&1 | tee -a "$LOG" | grep -q "syntax OK"; then
   info "rspamd 設定：syntax OK"
 else
   fail "rspamd configtest 未通過 — 請檢查 ${LOG}"
 fi
 
-DOWN=$(docker ps --filter "name=mailcowdockerized" --filter "status=exited" --format '{{.Names}}')
+DOWN=$(docker ps --filter "name=${MC_PROJECT}" --filter "status=exited" --format '{{.Names}}')
 if [[ -n "$DOWN" ]]; then
   fail "以下容器未運行：${DOWN}"
 else
-  info "所有 mailcow 容器運行中（$(docker ps --filter 'name=mailcowdockerized' -q | wc -l) 個）"
+  info "所有 mailcow 容器運行中（$(docker ps --filter "name=${MC_PROJECT}" -q | wc -l) 個）"
 fi
 
 if [[ -f "$TESTS" ]]; then
@@ -149,7 +153,7 @@ if [[ -f "$TESTS" ]]; then
     systemctl stop mailcow-updater.path >/dev/null 2>&1 && info "已暫停更新觸發器以進行測試"
   fi
 
-  TEST_OUT="$(docker exec -i mailcowdockerized-php-fpm-mailcow-1 php < "$TESTS" 2>&1)"
+  TEST_OUT="$(docker exec -i ${MC_PROJECT}-php-fpm-mailcow-1 php < "$TESTS" 2>&1)"
   printf '%s\n' "$TEST_OUT" | tee -a "$LOG"
 
   MISSED=""

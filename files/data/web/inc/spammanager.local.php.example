@@ -1,0 +1,11 @@
+<?php
+// Optional, per host: copy to spammanager.local.php only if you need it. This file holds
+// site data and must never be committed. PHP rather than JSON, so a direct web request
+// executes it and returns nothing.
+return [
+  // Impersonation rules created before the Spam Manager form existed. A rule is shown
+  // in the form only while its full content still has exactly this SHA-256.
+  'legacy_impersonation_rules' => [
+    // ['sha256' => '<sha256 of the rule content>', 'name' => 'Jane Doe', 'emails' => ['ceo@example.com']],
+  ],
+];

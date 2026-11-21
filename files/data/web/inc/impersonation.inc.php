@@ -45,8 +45,25 @@ symbols [
 ]
 RULE;
 }
+function impersonation_legacy_rules(): array {
+  // Optional, per host: rules that predate the form, listed in spammanager.local.php.
+  // That file is site data and is never part of the published template.
+  static $rules = null;
+  if ($rules === null) {
+    $f = __DIR__ . '/spammanager.local.php';
+    $local = is_file($f) ? (include $f) : [];
+    $rules = is_array($local['legacy_impersonation_rules'] ?? null) ? $local['legacy_impersonation_rules'] : [];
+  }
+  return $rules;
+}
 function impersonation_model($content) {
   $content = trim(str_replace("\r\n", "\n", $content));
+  // A pre-form rule is recognised only while its entire content still matches.
+  foreach (impersonation_legacy_rules() as $legacy) {
+    if (hash_equals((string)($legacy['sha256'] ?? ''), hash('sha256', $content))) {
+      return ['name' => (string)($legacy['name'] ?? ''), 'emails' => array_values((array)($legacy['emails'] ?? []))];
+    }
+  }
   if (!preg_match('/^# mailcow-impersonation-form-v1: ([A-Za-z0-9+\/=]+)\n/', $content, $m)) return null;
   try {
     $model = json_decode(base64_decode($m[1], true), true, 16, JSON_THROW_ON_ERROR);

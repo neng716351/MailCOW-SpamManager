@@ -1,0 +1,10 @@
+/* Local mailcow UI fixes for this host. A new, untracked file in css/build/, which
+   mailcow bundles automatically, so update.sh leaves it in place. */
+
+/* The language menu lists ~30 languages and runs past the bottom of the screen with no
+   way to scroll, so the last entries cannot be reached. Cap it to the viewport. */
+.dropdown-menu[aria-labelledby="languageDropdown"] {
+  max-height: calc(100vh - 5rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}

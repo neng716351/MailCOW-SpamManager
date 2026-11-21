@@ -190,6 +190,36 @@ Mailcow netfilter 預設「60 秒內失敗 5 次才封鎖」。低速暴力破�
 
 ---
 
+## 7.5 多國語言
+
+- 介面以**繁體中文為原文**，原文就是翻譯的鍵值。語言檔：`data/web/inc/spammanager-i18n/<mailcow 語言代碼>.json`，例如 `en-gb.json`。
+- 語言依 mailcow 的 `$_SESSION['mailcow_locale']` 決定；沒有對應語言檔時退回 `en-gb`。
+- **管理頁**：`js/site/spammanager.i18n.js` 在瀏覽器端翻譯，並用 MutationObserver 跟著頁面重繪；`confirm()`／`alert()` 的對話框也會翻譯。
+- **郵件檢視頁**：`inc/spammanager.i18n.inc.php` 的 `sm_i18n_html()` 在伺服器端翻譯，因為這一頁的 CSP 不允許執行 JS。
+- **保護郵件資料**：
+  1. 一段文字必須**完全由已知片段組成**才翻譯，所以含有其他中文的主旨會保持原樣。
+  2. 郵件資料欄位（主旨、寄件者、收件者、附件、內文）標記 `data-sm-raw`，一律不翻；這是為了防止主旨剛好等於某個介面詞。
+- **新增一種語言**：複製 `en-gb.json`，把 `strings` 的值換成該語言，再把 `meta.lang` 改成語言代碼。非原文校對的語言設 `"machine": true`，並在 `notice` 放一句提示，頁面頂端會顯示。
+- 帶數字的句子用樣板鍵值，`{n}` 會比對一個數字，讓數字可以放在各語言自然的位置，例如 `"第 {n} 行": "Line {n}: "`。
+
+## 7.6 重新驗證
+
+更新頁只記錄「最後一次更新」的結果，事後手動修好的問題會一直顯示紅色。「重新驗證」會由 `mailcow-updater-agent.sh` 的 `verify` 動作，以 root 執行 `helper-scripts/mailcow-verify.sh`：
+
+- 檢查四項：自訂設定、`rspamadm configtest`、容器狀態、功能測試。
+- **只檢查、不修改**，所以不需要更新密碼；兩次之間至少隔 2 分鐘。
+- 結果寫在 `data/updater/verify-status.json` 與 `verify.log`，**不會改動**上一次更新的紀錄。
+
+## 7.7 範本化：不寫死網域與帳號
+
+| 需要的資訊 | 來源 |
+|---|---|
+| 範例信箱的網域 | 資料庫中第一個啟用的郵件網域；取不到時改用 `MAILCOW_HOSTNAME` 去掉第一段 |
+| 容器名稱 | `mailcow.conf` 的 `COMPOSE_PROJECT_NAME`，預設 `mailcowdockerized` |
+| 本機專屬資料 | `data/web/inc/spammanager.local.php`（選用，**不要提交**） |
+
+本機專屬資料一律存成 `.php`，不要存成 `.json`。Mailcow 的 `/inc/` 目錄可以從外部直接下載，`.json` 會原樣送出；`.php` 只會被執行，不會輸出內容。
+
 ## 8. 驗證清單
 
 | 項目 | 方法 |
@@ -200,11 +230,13 @@ Mailcow netfilter 預設「60 秒內失敗 5 次才封鎖」。低速暴力破�
 | 別名門檻 | `rspamc -r <別名>` 出現 `ALIAS_SPAMLEVEL` |
 | 25 埠不收登入 | §7 的 Python 片段 |
 | 地區限制 | 頁面「擋下的來源」出現境外 IP；用台灣的手機網路（非 Wi-Fi）收信正常 |
-| 功能測試 | `docker compose exec -T php-fpm-mailcow php < helper-scripts/test-spammanager-release.php`（會寫入真的請求檔，請先停用 `mailcow-updater.path`） |
+| 功能測試 | 更新頁按「重新驗證」，或在主機執行 `sudo helper-scripts/mailcow-verify.sh` |
 
 ---
 
 ## 9. 三個會讓「改了沒變」的快取
+
+（主機腳本裡的 `docker exec` 請以 `${MC_PROJECT}-php-fpm-mailcow-1` 的形式取得容器名稱，見 §7.7。）
 
 | 快取 | 位置 | 處理 |
 |---|---|---|

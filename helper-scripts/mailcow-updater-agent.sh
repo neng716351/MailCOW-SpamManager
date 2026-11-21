@@ -39,6 +39,36 @@ set_status() { # state, message
 REQ="$(cat "$REQUEST" 2>/dev/null)"
 rm -f "$REQUEST"
 
+# "verify" re-runs the post-update checks and changes nothing, so it takes no
+# passphrase. It accepts no parameters either: the request can only select this fixed,
+# read-only script, never the update itself. It writes its own status file and leaves
+# the update status (the record of the last update) untouched.
+REQ_ACTION="$(printf '%s' "$REQ" | python3 -I -c '
+import json, sys
+try: print(str(json.loads(sys.stdin.read()).get("action", "update")))
+except Exception: print("update")' 2>/dev/null)"
+if [[ "$REQ_ACTION" == "verify" ]]; then
+  read -r V_TS V_USER < <(printf '%s' "$REQ" | python3 -I -c '
+import json, re, sys
+try:
+    d = json.loads(sys.stdin.read())
+    print(int(d.get("ts", 0)), re.sub(r"[^A-Za-z0-9@._-]", "_", str(d.get("user", "?")))[:64])
+except Exception:
+    print(0, "?")')
+  V_AGE=$(( $(now) - V_TS ))
+  (( V_TS == 0 || V_AGE > MAX_AGE || V_AGE < -60 )) && { logger -t mailcow-updater "rejected stale verify request"; exit 1; }
+  V_LAST=$(python3 -I -c 'import json,sys
+try: print(int(json.load(open(sys.argv[1])).get("verified",0)))
+except Exception: print(0)' "${UPDATER_DIR}/verify-status.json" 2>/dev/null || echo 0)
+  (( V_LAST > 0 && $(now) - V_LAST < 120 )) && { logger -t mailcow-updater "verify request within cooldown ignored"; exit 0; }
+  exec 9>"$LOCK"
+  flock -n 9 || { logger -t mailcow-updater "verify skipped: update in progress"; exit 0; }
+  logger -t mailcow-updater "starting verification requested by ${V_USER}"
+  "${MAILCOW_DIR}/helper-scripts/mailcow-verify.sh" "$V_USER"
+  exit 0
+fi
+[[ "$REQ_ACTION" == "update" ]] || { set_status "rejected" "不支援的動作"; exit 1; }
+
 if [[ ! -f "$SECRET_FILE" ]]; then
   set_status "error" "尚未設定更新密碼，請在主機執行 setup-updater-agent.sh"
   exit 1

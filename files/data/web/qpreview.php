@@ -14,6 +14,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET') {
     exit('Method not allowed');
 }
 require_once $_SERVER['DOCUMENT_ROOT'] . '/inc/prerequisites.inc.php';
+require_once $_SERVER['DOCUMENT_ROOT'] . '/inc/spammanager.i18n.inc.php';
+// Translate the page's own wording into the viewer's mailcow language. Mail data sits in
+// elements marked data-sm-raw and in the sandboxed srcdoc, which sm_i18n_html() never touches.
+ob_start('sm_i18n_html');
 
 // Local addition 2026-11-13: render the message's ORIGINAL HTML layout instead of only a
 // text conversion. The HTML is attacker-controlled, so it is rebuilt from a whitelist
@@ -115,7 +119,7 @@ function qp_sanitize_html(string $html, array $cids, bool $allow_remote_images):
                 // admin is actually looking for, and it must not be clickable.
                 $marker = $doc->createElement('span');
                 $marker->setAttribute('class', 'qp-url');
-                $marker->appendChild($doc->createTextNode(' [連結→ ' . $href . ' ]'));
+                $marker->appendChild($doc->createTextNode(sm_i18n_text(' [連結→ ') . $href . ' ]'));
                 if ($el->parentNode) $el->parentNode->insertBefore($marker, $el->nextSibling);
             }
         }
@@ -126,20 +130,20 @@ function qp_sanitize_html(string $html, array $cids, bool $allow_remote_images):
             if (stripos($src, 'cid:') === 0) {
                 $cid = substr($src, 4);
                 if (isset($cids[$cid])) { $el->setAttribute('src', $cids[$cid]); continue; }
-                $el->setAttribute('alt', '（內嵌圖片遺失）');
+                $el->setAttribute('alt', sm_i18n_text('（內嵌圖片遺失）'));
                 continue;
             }
             if ($src !== '' && preg_match('~^https?://~i', $src)) {
                 if ($allow_remote_images) { $el->setAttribute('src', $src); continue; }
                 $remote_blocked++;
                 $el->setAttribute('class', trim($el->getAttribute('class') . ' qp-blocked-img'));
-                $el->setAttribute('alt', '［外部圖片已封鎖］ ' . $src);
+                $el->setAttribute('alt', sm_i18n_text('［外部圖片已封鎖］ ') . $src);
                 continue;
             }
             if (stripos($src, 'data:image/') === 0 && strlen($src) <= 2097152) {
                 $el->setAttribute('src', $src);
             } else {
-                $el->setAttribute('alt', '（圖片已移除）');
+                $el->setAttribute('alt', sm_i18n_text('（圖片已移除）'));
             }
         }
     }
@@ -256,14 +260,14 @@ foreach ((is_array($data['symbols']) ? $data['symbols'] : []) as $key => $symbol
   <p class="notice">⚠ 這封郵件曾命中病毒掃描，請聯絡管理員確認安全。</p>
   <?php endif; ?>
   <dl>
-    <dt>主旨</dt><dd id="preview-subject"><?= qp_escape($data['subject']) ?></dd>
-    <dt>信封寄件者</dt><dd><?= qp_escape($data['env_from']) ?></dd>
-    <dt>標頭 From</dt><dd><?= qp_escape($data['header_from']) ?></dd>
-    <dt>收件者</dt><dd><?= qp_escape($message['rcpt']) ?></dd>
+    <dt>主旨</dt><dd id="preview-subject" data-sm-raw><?= qp_escape($data['subject']) ?></dd>
+    <dt>信封寄件者</dt><dd data-sm-raw><?= qp_escape($data['env_from']) ?></dd>
+    <dt>標頭 From</dt><dd data-sm-raw><?= qp_escape($data['header_from']) ?></dd>
+    <dt>收件者</dt><dd data-sm-raw><?= qp_escape($message['rcpt']) ?></dd>
     <dt>處理結果／分數</dt><dd><?= qp_escape($labels[$data['action']] ?? $data['action']) ?>／<?= qp_escape($data['score']) ?></dd>
     <dt>隔離時間</dt><dd><?= qp_escape($message['created'] ?? '—') ?></dd>
     <dt>命中項目</dt><dd><?= qp_escape(implode('、', $symbols) ?: '—') ?></dd>
-    <dt>附件（僅列資訊）</dt><dd id="preview-attachments"><?php if (!$attachments): ?>無<?php else: ?><ul><?php foreach ($attachments as $attachment): ?><li><?= qp_escape($attachment[0] ?: '（無檔名）') ?> — <?= qp_escape($attachment[1]) ?>，<?= (int)$attachment[2] ?> bytes</li><?php endforeach; ?></ul><?php endif; ?></dd>
+    <dt>附件（僅列資訊）</dt><dd id="preview-attachments"><?php if (!$attachments): ?>無<?php else: ?><ul data-sm-raw><?php foreach ($attachments as $attachment): ?><li><?= qp_escape($attachment[0] ?: '（無檔名）') ?> — <?= qp_escape($attachment[1]) ?>，<?= (int)$attachment[2] ?> bytes</li><?php endforeach; ?></ul><?php endif; ?></dd>
   </dl>
   <?php if ($data['html_render'] !== ''): ?>
   <h2>郵件內文（原始 HTML 版面）</h2>
@@ -279,9 +283,9 @@ foreach ((is_array($data['symbols']) ? $data['symbols'] : []) as $key => $symbol
           srcdoc="<?= qp_escape('<!doctype html><meta charset="utf-8"><style>html{font:16px/1.6 system-ui,sans-serif;color:#172b4d;padding:8px}img{max-width:100%}.qp-deadlink{color:#a52e27;text-decoration:underline dotted;cursor:not-allowed}.qp-url{color:#a52e27;font:13px/1.5 ui-monospace,monospace;overflow-wrap:anywhere}.qp-blocked-img{display:inline-block;min-width:120px;padding:4px 8px;border:1px dashed #d98c00;background:#fff6e5;color:#8a5a00;font-size:13px}</style>' . $data['html_render']) ?>"></iframe>
   <p class="muted">框架無腳本權限、同源已隔離。紅色虛線為原信連結，後方 <code>[連結→ … ]</code> 是它真正指向的網址。</p>
   <?php endif; ?>
-  <h2 class="tabnote">郵件內文（純文字）</h2><pre id="preview-text"><?= qp_escape($data['text_plain'] ?: '（無純文字部分）') ?></pre>
+  <h2 class="tabnote">郵件內文（純文字）</h2><pre id="preview-text"<?= $data['text_plain'] ? ' data-sm-raw' : '' ?>><?= qp_escape($data['text_plain'] ?: '（無純文字部分）') ?></pre>
   <?php if ($data['html_render'] === ''): ?>
-  <h2>HTML 郵件轉為純文字</h2><pre id="preview-html"><?= qp_escape($data['text_html'] ?: '（無 HTML 部分）') ?></pre>
+  <h2>HTML 郵件轉為純文字</h2><pre id="preview-html"<?= $data['text_html'] ? ' data-sm-raw' : '' ?>><?= qp_escape($data['text_html'] ?: '（無 HTML 部分）') ?></pre>
   <?php endif; ?>
   <?php if (!$outbound): ?>
   <div class="actions">

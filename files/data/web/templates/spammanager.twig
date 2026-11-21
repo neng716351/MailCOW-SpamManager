@@ -1,5 +1,6 @@
 {% extends 'base.twig' %}
 {% block content %}
+<script type="application/json" id="sm-i18n">{{ sm_i18n|raw }}</script>
 <style>
 #spam-manager .sm-table th,#spam-manager .sm-table td{padding:.4rem .65rem;vertical-align:middle}
 #spam-manager .sm-table td{overflow-wrap:anywhere}
@@ -22,6 +23,9 @@
 #spam-manager .sm-steps li.running{border-color:var(--bs-primary);background:var(--bs-primary-bg-subtle);box-shadow:0 0 0 1px var(--bs-primary)}
 #spam-manager .sm-steps li.warn{border-color:var(--bs-danger-border-subtle);background:var(--bs-danger-bg-subtle)}
 #spam-manager .sm-steps li.pending,#spam-manager .sm-steps li.skipped{color:var(--bs-secondary-color)}
+#spam-manager .sm-steps li.resolved{border-color:var(--bs-success-border-subtle);background:var(--bs-success-bg-subtle)}
+#spam-manager .sm-steps li.resolved .sm-step-detail{text-decoration:line-through}
+#spam-manager .sm-steps li.resolved .sm-step-fixed{display:block;color:var(--bs-success-text-emphasis);font-size:.75rem;text-decoration:none}
 #spam-manager .sm-log{max-height:520px;min-height:120px;overflow:auto;white-space:pre-wrap;background:var(--bs-tertiary-bg);font-size:.75rem;line-height:1.45}
 #spam-manager .sm-log .sm-l-step{font-weight:700;color:var(--bs-primary-text-emphasis);display:block;margin-top:.35rem;border-top:1px dashed var(--bs-border-color);padding-top:.25rem}
 #spam-manager .sm-log .sm-l-bad{color:var(--bs-danger-text-emphasis);font-weight:600;background:var(--bs-danger-bg-subtle)}
@@ -77,7 +81,7 @@
           </div>
           <div class="col-md-8">
             <label for="impersonation-emails" class="form-label">允許的寄件信箱</label>
-            <textarea id="impersonation-emails" class="form-control" rows="2" required placeholder="ceo@example.com" aria-describedby="impersonation-email-help"></textarea>
+            <textarea id="impersonation-emails" class="form-control" rows="2" required placeholder="ceo@{{ sm_domain }}" aria-describedby="impersonation-email-help"></textarea>
             <div id="impersonation-email-help" class="text-muted sm-help mt-1">一行一個或逗號分隔，最多 20 個。</div>
           </div>
         </div>

@@ -1,0 +1,4 @@
+# Site data: never commit
+files/data/web/inc/spammanager.local.php
+files/data/web/inc/spammanager.customizations.json
+files/data/conf/rspamd/dynmaps/alias-spamlevels.json

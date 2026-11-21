@@ -645,6 +645,12 @@ def check_untracked_files():
         'data/conf/rspamd/dynmaps/alias-spamlevels.json',
         'helper-scripts/mailcow-geo-agent.py',
         'helper-scripts/setup-geo-allowlist.sh',
+        'helper-scripts/mailcow-verify.sh',
+        'data/web/inc/spammanager.i18n.inc.php',
+        'data/web/js/site/spammanager.i18n.js',
+        'data/web/inc/spammanager-i18n/en-gb.json',
+        'data/web/inc/vars.local.inc.php',
+        'data/web/css/build/099-local-overrides.css',
     ]
     missing = [p for p in expected if not os.path.isfile(os.path.join(ROOT, p))]
     if missing:

@@ -321,6 +321,15 @@ function sm_update_status(): array {
   if (is_readable($dir . '/update.log')) {
     $out = array_merge($out, sm_parse_update_log((string)file_get_contents($dir . '/update.log')));
   }
+  // Result of the last "重新驗證" (mailcow-verify.sh), kept apart from the update record.
+  $out['verify'] = null;
+  if (is_readable($dir . '/verify-status.json')) {
+    $v = json_decode((string)file_get_contents($dir . '/verify-status.json'), true);
+    if (is_array($v)) {
+      $v['log'] = is_readable($dir . '/verify.log') ? (string)file_get_contents($dir . '/verify.log', false, null, 0, 200000) : '';
+      $out['verify'] = $v;
+    }
+  }
   return $out;
 }
 function sm_backup_notify(): string {
@@ -789,6 +798,23 @@ function sm_mutate(string $op,array $p): array {
       chmod($tmp,0600);
       if(!rename($tmp,$dir.'/request.json')){@unlink($tmp);throw new RuntimeException('無法送出更新請求。');}
       return ['message'=>'已送出更新請求。主機會驗證更新密碼後開始更新；更新期間網頁會短暫中斷，完成後此頁會顯示結果。'];
+    case 'update_verify_request':
+      // Re-run the post-update checks. Read-only on the host, so no passphrase; the root
+      // agent only maps this to the fixed verify script and enforces a 2-minute gap.
+      $dir='/updater';
+      if(!is_dir($dir) || !is_writable($dir))throw new RuntimeException('尚未啟用網頁更新。');
+      if(is_file($dir.'/request.json'))throw new RuntimeException('已有一筆請求待處理，請稍候。');
+      $us=sm_update_status();
+      if(($us['state'] ?? '')==='running')throw new RuntimeException('更新正在進行中，結束後會自動驗證。');
+      $v=$us['verify'] ?? [];
+      if(($v['state'] ?? '')==='running')throw new RuntimeException('驗證正在進行中。');
+      if(!empty($v['verified']) && time()-(int)$v['verified']<120)throw new RuntimeException('兩次驗證需間隔 2 分鐘，請稍後再試。');
+      $payload=json_encode(['ts'=>time(),'user'=>$_SESSION['mailcow_cc_username'] ?? 'admin','action'=>'verify'],JSON_UNESCAPED_UNICODE);
+      $tmp=$dir.'/.request.tmp';
+      if(file_put_contents($tmp,$payload)===false)throw new RuntimeException('無法寫入驗證請求。');
+      chmod($tmp,0600);
+      if(!rename($tmp,$dir.'/request.json')){@unlink($tmp);throw new RuntimeException('無法送出驗證請求。');}
+      return ['message'=>'已送出重新驗證，約 30 秒到 1 分鐘完成，結果會顯示在此頁。'];
     case 'backup_request':
       // Same contract as update_request: hand the job to the root agent, which verifies
       // the passphrase. The backup target is fixed on the host, so nothing the web layer

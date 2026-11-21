@@ -15,6 +15,10 @@
 set -uo pipefail
 
 MAILCOW_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Container names follow the compose project name, which differs per install; read it
+# from mailcow.conf instead of assuming the default "mailcowdockerized".
+MC_PROJECT="$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' "${MAILCOW_DIR}/mailcow.conf" 2>/dev/null | tail -1 | tr -d '"'"'"'\r ')"
+MC_PROJECT="${MC_PROJECT:-mailcowdockerized}"
 CONF_DIR="/etc/mailcow-nas"
 CRED_FILE="${CONF_DIR}/credentials"
 TARGET_FILE="${CONF_DIR}/target.conf"
@@ -90,7 +94,7 @@ notify() { # subject, body
   rp="$(grep -E '^REDISPASS=' "${MAILCOW_DIR}/mailcow.conf" 2>/dev/null | cut -d= -f2-)"
   if [[ -n "$rp" ]]; then
     for key in BACKUP_NOTIFY REJECTED_HOLD_NOTIFY; do
-      to="$(docker exec mailcowdockerized-redis-mailcow-1 redis-cli -a "$rp" --no-auth-warning GET "$key" 2>/dev/null | tr -d '\r')"
+      to="$(docker exec ${MC_PROJECT}-redis-mailcow-1 redis-cli -a "$rp" --no-auth-warning GET "$key" 2>/dev/null | tr -d '\r')"
       [[ -n "$to" && "$to" != "(nil)" ]] && break || to=""
     done
   fi
@@ -101,7 +105,7 @@ notify() { # subject, body
     printf 'Subject: =?UTF-8?B?%s?=\n' "$(printf '%s' "$subj" | base64 -w0)"
     printf 'Content-Type: text/plain; charset=UTF-8\nContent-Transfer-Encoding: base64\n\n'
     printf '%s' "$body" | base64 -w0; printf '\n'
-  } | docker exec -i mailcowdockerized-postfix-mailcow-1 sendmail -t -i 2>/dev/null || true
+  } | docker exec -i ${MC_PROJECT}-postfix-mailcow-1 sendmail -t -i 2>/dev/null || true
 }
 
 fail_out() {
@@ -356,7 +360,7 @@ done
 docker start "$(docker ps -aqf name=watchdog-mailcow)" >/dev/null 2>&1 && log "已啟動 watchdog"
 
 sleep 10
-DOWN="$(docker ps -a --filter name=mailcowdockerized --filter status=exited --format '{{.Names}}' | tr '\n' ' ')"
+DOWN="$(docker ps -a --filter name=${MC_PROJECT} --filter status=exited --format '{{.Names}}' | tr '\n' ' ')"
 cleanup
 if [[ -n "$DOWN" ]]; then
   set_status "error" "還原完成但有容器未運行：${DOWN}"
